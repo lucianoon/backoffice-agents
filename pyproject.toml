@@ -14,6 +14,8 @@ dependencies = [
     "typer>=0.12",
     "rich>=13",
     "python-dotenv>=1.0",
+    "sqlalchemy>=2.0",
+    "langsmith>=0.1",
 ]
 
 [project.optional-dependencies]
@@ -21,6 +23,8 @@ anthropic = ["langchain-anthropic>=0.3"]
 bedrock = ["langchain-aws>=0.2"]
 gemini = ["langchain-google-genai>=2.0"]
 ollama = ["langchain-ollama>=0.2"]
+postgres = ["psycopg[binary]>=3.1"]
+langfuse = ["langfuse>=2.0"]
 
 [project.scripts]
 backoffice = "backoffice_agents.cli:app"

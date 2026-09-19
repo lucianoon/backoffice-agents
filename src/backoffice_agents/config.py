@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     jev_anonymize: bool = True          # pseudonimiza o state antes de sair para o Jev
     jev_fallback_emulated: bool = True  # com JEV_MODE=real, cai para o emulador se a API falhar
     max_attempts: int = 3               # reprocessamentos de um item em 'error' antes de 'failed'
+    retry_delay_s: float = 60.0         # espera mínima antes de reprocessar um item em 'error'
 
     # Política de confiança
     confidence_auto: float = 0.85
@@ -59,9 +60,18 @@ class Settings(BaseSettings):
     telegram_chat_id: str | None = None
     telegram_mock_auto_approve: bool = True
 
-    # Persistência
-    db_path: str = "data/backoffice.db"
+    # Persistência e fila. Postgres: postgresql+psycopg://user:pass@host:5432/backoffice
+    db_url: str = "sqlite:///data/backoffice.db"
     samples_path: str = "data/samples/emails.json"
+
+    # Custo (US$ por milhão de tokens) para o relatório `backoffice costs`
+    llm_price_input_per_m: float = 0.40    # padrão: gpt-4.1-mini
+    llm_price_output_per_m: float = 1.60
+    jev_price_input_per_m: float = 0.042   # docs.typesafe.ai; saída é grátis
+
+    # Rastreamento: none | langsmith (LANGSMITH_API_KEY) | langfuse (LANGFUSE_*_KEY, extra 'langfuse')
+    tracing: Literal["none", "langsmith", "langfuse"] = "none"
+    langsmith_project: str | None = "backoffice-agents"
 
 
 def get_settings() -> Settings:

@@ -219,6 +219,32 @@ def labels_merge(a: str, b: str, out: str = typer.Option(..., help="JSONL consol
 
 
 @app.command()
+def costs(item_id: str = typer.Option(None, help="restringe a um item")) -> None:
+    """Custo e latência reais por modelo, com o 'e se' do Jev real no lugar do emulador."""
+    from .costs import cost_report
+
+    runner = _runner()
+    report = cost_report(runner.store.list_model_calls(item_id), runner.settings)
+    if report.items == 0:
+        rprint("Nenhuma chamada de modelo registrada ainda.")
+        return
+    table = Table("tipo", "modelo", "chamadas", "tokens in", "tokens out", "US$", "média ms", "p95 ms")
+    for u in report.by_model:
+        table.add_row(u.kind, u.model, str(u.calls), f"{u.input_tokens:,}", f"{u.output_tokens:,}",
+                      f"{u.cost_usd:.4f}", f"{u.mean_latency_ms:.0f}", f"{u.p95_latency_ms:.0f}")
+    rprint(table)
+    rprint(f"itens: {report.items}  total: US$ {report.total_cost_usd:.4f}  "
+           f"por item: US$ {report.cost_per_item_usd:.4f}  "
+           f"(LLM {report.llm_cost_usd:.4f} + Jev {report.jev_cost_usd:.4f})")
+    if report.emulated_input_tokens:
+        rprint(f"[bold]E se[/bold] as {report.emulated_input_tokens:,} tokens de entrada do emulador "
+               f"fossem ao Jev real: US$ {report.what_if_real_jev_usd:.4f} "
+               f"em vez de US$ {report.emulated_cost_usd:.4f} "
+               f"({report.emulated_cost_usd / max(report.what_if_real_jev_usd, 1e-9):.0f}x mais barato, "
+               "saída grátis; latência de 70 a 500 ms segundo a TypeSafe)")
+
+
+@app.command()
 def calibration() -> None:
     """Calibração das decisões com rótulo humano, por pergunta e por modelo."""
     from .calibration import calibration_report

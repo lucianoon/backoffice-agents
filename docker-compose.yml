@@ -1,13 +1,39 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: backoffice
+      POSTGRES_PASSWORD: backoffice
+      POSTGRES_DB: backoffice
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U backoffice"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   worker:
     build: .
     env_file: .env
+    environment:
+      DB_URL: postgresql+psycopg://backoffice:backoffice@db:5432/backoffice
     command: ["worker", "--watch", "--interval", "30"]
-    volumes:
-      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      replicas: 2   # a fila com reserva atômica permite mais de um worker
+
   telegram:
     build: .
     env_file: .env
+    environment:
+      DB_URL: postgresql+psycopg://backoffice:backoffice@db:5432/backoffice
     command: ["telegram"]
-    volumes:
-      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

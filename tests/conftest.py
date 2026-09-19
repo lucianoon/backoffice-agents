@@ -116,9 +116,9 @@ def ingest_only(runner: Runner, item_id: str) -> None:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(_env_file=None, db_path=str(tmp_path / "test.db"),
+    return Settings(_env_file=None, db_url="sqlite:///" + (tmp_path / "test.db").as_posix(),
                     samples_path=str(ROOT / "data" / "samples" / "emails.json"),
-                    telegram_mock_auto_approve=True)
+                    telegram_mock_auto_approve=True, retry_delay_s=0)
 
 
 @pytest.fixture
@@ -126,6 +126,6 @@ def make_runner(settings: Settings):
     def _make(script: list[AIMessage], jev_overrides: dict[str, Any] | None = None,
               jev: FakeJev | None = None, jev_fallback: FakeJev | None = None) -> Runner:
         return Runner(settings=settings, llm=ScriptedLLM(script=script), jev=jev or FakeJev(jev_overrides),
-                      adapters=build_adapters(settings), store=Store(settings.db_path),
+                      adapters=build_adapters(settings), store=Store(settings.db_url),
                       jev_fallback=jev_fallback)
     return _make

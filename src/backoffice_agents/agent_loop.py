@@ -7,6 +7,7 @@ fique no caminho crítico e o loop possa parar e retomar após aprovação human
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -18,6 +19,7 @@ from .policy import GateOutcome
 from .tools import ToolRegistry
 
 GateFn = Callable[[dict[str, Any]], tuple[GateOutcome, str]]
+LlmCallHook = Callable[[AIMessage, float], None]  # (resposta, latência em ms)
 
 
 @dataclass
@@ -49,14 +51,17 @@ def execute_tool(registry: ToolRegistry, call: dict[str, Any]) -> ToolMessage:
 
 
 def run_agent(llm: BaseChatModel, registry: ToolRegistry, messages: list[BaseMessage],
-              gate: GateFn, max_iterations: int) -> AgentTurn:
+              gate: GateFn, max_iterations: int, on_llm_call: LlmCallHook | None = None) -> AgentTurn:
     llm_with_tools = llm.bind_tools(registry.tools)
     messages = list(messages)
 
     for _ in range(max_iterations):
         calls = unanswered_tool_calls(messages)
         if not calls:
+            started = time.perf_counter()
             ai = llm_with_tools.invoke(messages)
+            if on_llm_call:
+                on_llm_call(ai, (time.perf_counter() - started) * 1000)
             messages.append(ai)
             if not ai.tool_calls:
                 return AgentTurn(messages=messages, final_text=_text(ai))

@@ -15,6 +15,7 @@ from .jev import JevClient, build_jev_client
 from .jev.emulated import EmulatedJevClient
 from .llm import build_llm
 from .storage import Store
+from .tracing import configure_tracing, run_config
 
 TERMINAL = {"sent", "escalated", "discarded", "failed"}
 
@@ -29,6 +30,7 @@ class Runner:
     jev_fallback: JevClient | None = None
 
     def __post_init__(self) -> None:
+        configure_tracing(self.settings)
         self.graph = build_graph(Nodes(self.settings, self.llm, self.jev, self.adapters, self.store,
                                        jev_fallback=self.jev_fallback))
 
@@ -40,7 +42,7 @@ class Runner:
         if settings.jev_mode == "real" and settings.jev_fallback_emulated:
             fallback = EmulatedJevClient(llm)
         return cls(settings=settings, llm=llm, jev=build_jev_client(settings, llm),
-                   adapters=adapters or build_adapters(settings), store=Store(settings.db_path),
+                   adapters=adapters or build_adapters(settings), store=Store(settings.db_url),
                    jev_fallback=fallback)
 
     # ---- ingestão ----
@@ -67,28 +69,41 @@ class Runner:
         return self._invoke(item_id, state)
 
     def resume_item(self, approval: dict[str, Any]) -> dict[str, Any]:
+        """Retoma um item a partir de uma aprovação decidida.
+
+        Aceita a aprovação em `approved`/`rejected` (marca `applying` aqui) ou já reservada por
+        `claim_next_approval` (vem com `decided_status`).
+        """
         item = self.store.get_item(approval["item_id"])
         if item is None or not item["state"]:
             raise KeyError(approval["item_id"])
+        decided = approval.get("decided_status") or approval["status"]
         state = dict(item["state"])
         state["approval"] = {"id": approval["id"], "kind": approval["kind"],
-                             "approved": approval["status"] == "approved"}
-        # marcador em disco: se morrer no meio, a retomada vira escalada, não repetição
-        self.store.set_approval_status(approval["id"], "applying")
+                             "approved": decided == "approved"}
+        if approval["status"] != "applying":
+            # marcador em disco: se morrer no meio, a retomada vira escalada, não repetição
+            self.store.set_approval_status(approval["id"], "applying")
         result = self._invoke(approval["item_id"], state)
         self.store.mark_approval_applied(approval["id"])
         return result
 
     def run_pending(self) -> list[tuple[str, str]]:
-        """Recupera itens em voo, processa novos e em erro, retoma aprovações. Devolve (item, status)."""
+        """Recupera itens em voo, consome a fila (novos e em erro) e retoma aprovações.
+
+        Cada item é reservado atomicamente, então vários workers podem chamar isto em paralelo.
+        """
         outcomes: list[tuple[str, str]] = []
         outcomes += self._recover_in_flight()
-        for item in self.store.list_items("new") + self.store.list_retryable(self.settings.max_attempts):
+        seen: set[str] = set()
+        while (item := self.store.claim_next(self.settings.max_attempts, self.settings.retry_delay_s,
+                                             exclude=seen)) is not None:
+            seen.add(item["id"])
             try:
                 outcomes.append((item["id"], self.process_item(item["id"])["status"]))
             except Exception:
                 outcomes.append((item["id"], self.store.get_item(item["id"])["status"]))
-        for approval in self.store.list_approvals("approved") + self.store.list_approvals("rejected"):
+        while (approval := self.store.claim_next_approval()) is not None:
             try:
                 outcomes.append((approval["item_id"], self.resume_item(approval)["status"]))
             except Exception:
@@ -120,8 +135,9 @@ class Runner:
         return "escalated"
 
     def _invoke(self, item_id: str, state: dict[str, Any]) -> dict[str, Any]:
+        config = run_config(self.settings, item_id, {"resume": bool(state.get("approval"))})
         try:
-            final = self.graph.invoke(state)
+            final = self.graph.invoke(state, config=config)
         except Exception as exc:
             attempts = self.store.increment_attempts(item_id)
             status = "failed" if attempts >= self.settings.max_attempts else "error"

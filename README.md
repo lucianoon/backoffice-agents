@@ -48,6 +48,20 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
   categoria, o menor limiar com precisão acima do alvo e imprime a linha pronta para o `.env`;
   `None` significa manter a categoria em revisão humana até haver mais dados.
 
+### Custo, fila e rastreamento
+
+- **Custo e latência reais**: toda chamada a modelo (LLM do agente, emulador, Jev real) vai para a
+  tabela `model_calls` com tokens e latência. `backoffice costs` mostra custo por modelo, por item,
+  média e p95, e o "e se": quanto os tokens que hoje passam pelo emulador custariam no Jev real.
+  Preços em `LLM_PRICE_*_PER_M` e `JEV_PRICE_INPUT_PER_M`.
+- **Fila com reserva atômica**: `DB_URL` aceita SQLite (dev) ou Postgres. Cada worker reserva o
+  próximo item com `FOR UPDATE SKIP LOCKED` (Postgres) ou transação imediata (SQLite), então vários
+  workers e o poller do Telegram convivem sem processar o mesmo item duas vezes. Itens em erro
+  voltam depois de `RETRY_DELAY_S`. O `docker-compose.yml` sobe Postgres e dois workers.
+- **Rastreamento por item**: `TRACING=langsmith` (com `LANGSMITH_API_KEY`) ou `TRACING=langfuse`
+  (extra `langfuse`). Cada execução do grafo vira um trace nomeado pelo item, com nós, chamadas do
+  LLM, ferramentas e as consultas ao Jev como spans.
+
 ### Proteções
 
 - **Pseudonimização** (`JEV_ANONYMIZE`): antes de sair para o Jev, e-mails, CPF, CNPJ, cartões,
@@ -68,13 +82,14 @@ Requer Python 3.12 e [uv](https://docs.astral.sh/uv/).
 ```bash
 cp .env.example .env        # preencha LLM_* (ou exporte OPENAI_API_KEY)
 uv sync --python 3.12
-uv run pytest               # 42 testes, tudo com mocks e LLM roteirizado
+uv run pytest               # 53 testes, tudo com mocks e LLM roteirizado (+1 no Postgres com TEST_DB_URL)
 
 uv run backoffice demo      # ponta a ponta com os 6 e-mails de exemplo e mocks
 uv run backoffice items     # lista os itens e o status final
 uv run backoffice show email:em-001
 uv run backoffice eval-shadow --mode emulated --suggest-thresholds   # triagem x rótulos: acurácia, ECE, limiares
 uv run backoffice calibration                   # decisões com rótulo humano, por pergunta e modelo
+uv run backoffice costs                         # custo e latência por modelo, "e se" do Jev real
 uv run backoffice labels export --out data/labels/lote1.jsonl        # lote para dois anotadores
 ```
 
@@ -83,7 +98,7 @@ Operação contínua:
 ```bash
 uv run backoffice worker --watch     # ingere e-mails (IMAP) e processa
 uv run backoffice telegram           # aprovações por botão e comandos /pendentes /status /aprovar /rejeitar
-docker compose up                    # os dois serviços acima
+docker compose up                    # Postgres + 2 workers + poller do Telegram
 ```
 
 ### Trocar de mock para sistema real
@@ -92,6 +107,8 @@ docker compose up                    # os dois serviços acima
 |---|---|---|
 | `LLM_PROVIDER` / `LLM_MODEL` | `openai`, `anthropic`, `bedrock_converse`, `google_genai`, `ollama` | `openai` + `LLM_BASE_URL` cobre Ollama, Groq, vLLM, OpenRouter |
 | `JEV_MODE` | `emulated`, `real` | `real` exige `TYPESAFE_API_KEY` |
+| `DB_URL` | `sqlite:///...`, `postgresql+psycopg://...` | Postgres exige `uv sync --extra postgres` |
+| `TRACING` | `none`, `langsmith`, `langfuse` | Langfuse exige `uv sync --extra langfuse` |
 | `EMAIL_ADAPTER` | `mock`, `imap` | IMAP/SMTP genérico (Gmail com senha de app, Outlook) |
 | `TELEGRAM_ADAPTER` | `mock`, `bot` | `bot` exige token e `TELEGRAM_CHAT_ID` autorizado |
 | `CRM_ADAPTER` / `ERP_ADAPTER` | `mock` | interfaces em `adapters/crm.py` e `adapters/erp.py`; implemente a classe e registre em `adapters/__init__.py` |
@@ -112,7 +129,9 @@ src/backoffice_agents/
   agent_loop.py    loop de tool calling com gate e parada para aprovação
   graph/           grafo LangGraph (triagem, ação, verificação, aprovação, envio)
   adapters/        e-mail (mock, IMAP/SMTP), CRM (mock), ERP (mock), Telegram (mock, Bot API)
-  storage.py       SQLite: itens, decisões do Jev, aprovações
+  storage.py       SQLAlchemy (SQLite/Postgres): fila de itens com reserva atômica, decisões, aprovações, chamadas a modelo
+  costs.py         custo e latência por modelo, "e se" do Jev real
+  tracing.py       LangSmith / Langfuse por item, spans do Jev
   runner.py        monta tudo, processa e retoma itens
   channels/        poller do Telegram
   eval_shadow.py   avaliação em sombra (acurácia, ECE, latência)

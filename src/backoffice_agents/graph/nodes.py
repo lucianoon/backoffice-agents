@@ -27,6 +27,7 @@ from ..policy import GateOutcome, RiskLevel, Tier, gate_outcome, tier_for
 from ..privacy import Pseudonymizer
 from ..storage import Store
 from ..tools import ToolContext, ToolRegistry, build_tools
+from ..tracing import traced_jev_ask
 from .state import AgentState
 
 SYSTEM_PROMPT = """Você é o assistente de backoffice da empresa. Você recebe um e-mail de cliente já triado
@@ -71,14 +72,26 @@ class Nodes:
             payload = Pseudonymizer(names).apply(payload)
         note = None
         try:
-            response = self.jev.ask(payload, questions)
+            response = traced_jev_ask(self.jev.ask, self.settings.jev_model, payload, questions)
         except Exception as exc:
             if self.jev_fallback is None:
                 raise
-            response = self.jev_fallback.ask(payload, questions)
+            response = traced_jev_ask(self.jev_fallback.ask, "jev-emulated", payload, questions)
             note = f"{stage}: Jev indisponível ({exc.__class__.__name__}); usado fallback emulado"
         self._log(state["item_id"], stage, response)
+        self.store.log_model_call(state["item_id"], "jev", stage, response.model,
+                                  response.usage.get("input_tokens", 0),
+                                  response.usage.get("output_tokens", 0),
+                                  response.latency_ms, response.calibrated)
         return response, note
+
+    def _on_llm_call(self, item_id: str, stage: str):
+        def hook(message, latency_ms: float) -> None:
+            usage = getattr(message, "usage_metadata", None) or {}
+            self.store.log_model_call(item_id, "llm", stage, self.settings.llm_model,
+                                      usage.get("input_tokens", 0), usage.get("output_tokens", 0),
+                                      latency_ms)
+        return hook
 
     @staticmethod
     def _label_buttons(item_id: str) -> list[Button]:
@@ -179,7 +192,8 @@ class Nodes:
         registry = self._registry(state)
         messages = messages_from_dict(state["messages"])
         turn = run_agent(self.llm, registry, messages, self._gate(state, registry, messages),
-                         self.settings.max_tool_iterations)
+                         self.settings.max_tool_iterations,
+                         on_llm_call=self._on_llm_call(state["item_id"], "act"))
         update: dict[str, Any] = {
             "messages": messages_to_dict(turn.messages),
             "escalation_reason": registry.context.escalation_reason,
