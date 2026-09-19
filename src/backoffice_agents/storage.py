@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -43,6 +44,9 @@ work_items = Table(
     Column("state", Text),
     Column("attempts", Integer, nullable=False, default=0, server_default="0"),
     Column("claimed_by", String(128)),
+    Column("thread_id", String(128), index=True),      # conversa a que o item pertence
+    Column("message_id", String(256)),                 # Message-ID do e-mail recebido
+    Column("sent_message_id", String(256)),            # Message-ID da nossa resposta
     Column("created_at", String(40), nullable=False),
     Column("updated_at", String(40), nullable=False),
 )
@@ -99,6 +103,19 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+_SUBJECT_PREFIX = re.compile(r"^\s*(re|res|fw|fwd|enc|en)\s*:\s*", re.IGNORECASE)
+
+
+def normalize_subject(subject: str) -> str:
+    """Remove prefixos de resposta/encaminhamento e normaliza espaços e caixa."""
+    previous = None
+    subject = subject or ""
+    while previous != subject:
+        previous = subject
+        subject = _SUBJECT_PREFIX.sub("", subject)
+    return " ".join(subject.lower().split())
+
+
 def default_worker_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
 
@@ -132,12 +149,16 @@ class Store:
                 conn.execute(text("ALTER TABLE work_items ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"))
             if "claimed_by" not in existing:
                 conn.execute(text("ALTER TABLE work_items ADD COLUMN claimed_by VARCHAR(128)"))
+            for column, size in (("thread_id", 128), ("message_id", 256), ("sent_message_id", 256)):
+                if column not in existing:
+                    conn.execute(text(f"ALTER TABLE work_items ADD COLUMN {column} VARCHAR({size})"))
             if "human_label_by" not in decision_columns:
                 conn.execute(text("ALTER TABLE decisions ADD COLUMN human_label_by VARCHAR(128)"))
 
     # ---- work items ----
     def upsert_item(self, item_id: str, source: str, status: str, payload: dict[str, Any],
-                    state: dict[str, Any] | None = None) -> None:
+                    state: dict[str, Any] | None = None, thread_id: str | None = None,
+                    message_id: str | None = None) -> None:
         now = _now()
         state_json = json.dumps(state, ensure_ascii=False) if state is not None else None
         with self.engine.begin() as conn:
@@ -148,7 +169,43 @@ class Store:
                 conn.execute(work_items.insert().values(
                     id=item_id, source=source, status=status,
                     payload=json.dumps(payload, ensure_ascii=False), state=state_json,
-                    attempts=0, created_at=now, updated_at=now))
+                    attempts=0, thread_id=thread_id or item_id, message_id=message_id or None,
+                    created_at=now, updated_at=now))
+
+    def set_sent_message_id(self, item_id: str, sent_message_id: str) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(update(work_items).where(work_items.c.id == item_id)
+                         .values(sent_message_id=sent_message_id))
+
+    # ---- threads ----
+    def find_item_by_message_id(self, message_id: str) -> dict[str, Any] | None:
+        """Item cujo e-mail recebido OU cuja resposta enviada tem este Message-ID."""
+        stmt = select(work_items).where(
+            (work_items.c.message_id == message_id) | (work_items.c.sent_message_id == message_id)
+        ).order_by(work_items.c.created_at.desc()).limit(1)
+        with self.engine.connect() as conn:
+            row = conn.execute(stmt).first()
+        return _item(row) if row else None
+
+    def find_thread_by_subject(self, from_addr: str, normalized_subject: str, since: str,
+                               source: str = "email") -> dict[str, Any] | None:
+        """Último item do mesmo remetente com o mesmo assunto normalizado desde `since`."""
+        stmt = select(work_items).where((work_items.c.source == source)
+                                        & (work_items.c.created_at >= since)
+                                        ).order_by(work_items.c.created_at.desc())
+        with self.engine.connect() as conn:
+            for row in conn.execute(stmt):
+                item = _item(row)
+                payload = item["payload"]
+                if (payload.get("from_addr", "").lower() == from_addr.lower()
+                        and normalize_subject(payload.get("subject", "")) == normalized_subject):
+                    return item
+        return None
+
+    def list_thread(self, thread_id: str) -> list[dict[str, Any]]:
+        stmt = select(work_items).where(work_items.c.thread_id == thread_id).order_by(work_items.c.created_at)
+        with self.engine.connect() as conn:
+            return [_item(r) for r in conn.execute(stmt)]
 
     def set_item_state(self, item_id: str, status: str, state: dict[str, Any]) -> None:
         with self.engine.begin() as conn:

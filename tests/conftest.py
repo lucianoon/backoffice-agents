@@ -80,10 +80,19 @@ class FakeJev:
         # chamadas (1-based) que levantam erro, simulando a API fora do ar
         self.fail_calls: set[int] = set(range(1, fail_first + 1))
 
-    def _value(self, key: str) -> Any:
+    def _value(self, key: str, question: Question) -> Any:
         n = self.counts.get(key, 0)
         self.counts[key] = n + 1
-        value = self.overrides.get(key, DEFAULTS[key])
+        if key in self.overrides:
+            value = self.overrides[key]
+        elif key in DEFAULTS:
+            value = DEFAULTS[key]
+        elif isinstance(question, ScoreQuestion):   # ex.: relevância p0..pN da base de conhecimento
+            value = self.overrides.get("_score_default", 3.0)
+        elif isinstance(question, NoulQuestion):
+            value = 0.5
+        else:
+            value = (next(iter(question.criteria)), 0.5)
         return value(n) if isinstance(value, Callable) else value
 
     def ask(self, state, questions: dict[str, Question]) -> JevResponse:
@@ -93,7 +102,7 @@ class FakeJev:
             raise ConnectionError("jev fora do ar")
         answers = {}
         for key, question in questions.items():
-            value = self._value(key)
+            value = self._value(key, question)
             if isinstance(question, NoulQuestion):
                 answers[key] = NoulAnswer(noul=float(value))
             elif isinstance(question, ChoiceQuestion):

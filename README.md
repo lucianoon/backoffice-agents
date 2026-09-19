@@ -31,6 +31,21 @@ e-mail ──> triagem (Jev) ──> agente LLM + ferramentas ──> verificaç
 Toda resposta do Jev (probabilidade, confiança, latência, se é calibrada) fica na tabela `decisions`
 com espaço para o rótulo humano, que é o que permite medir calibração ao longo do piloto.
 
+### Conversa, políticas e anexos
+
+- **Threads**: um e-mail novo é ligado à conversa certa pelos cabeçalhos `In-Reply-To` e
+  `References` (inclusive quando responde à nossa mensagem, cujo `Message-ID` fica guardado) ou,
+  sem cabeçalhos, por remetente e assunto normalizado dentro de `THREAD_WINDOW_DAYS`. O histórico
+  (mensagens do cliente, nossas respostas, itens em aberto) entra na triagem, no prompt do agente e
+  na verificação.
+- **Base de conhecimento** (`KB_DIR`, arquivos `.md` por política): a ferramenta `kb_search` faz
+  uma busca lexical, manda os candidatos ao Jev numa única chamada com um Score de relevância por
+  trecho, e só os relevantes chegam ao LLM. O prompt exige consultar a base antes de afirmar
+  qualquer prazo ou regra, e a verificação usa os trechos como base para "afirmações sem base".
+- **Anexos**: PDF (pypdf), texto e imagens (transcrição pelo LLM com visão) viram texto no estado
+  do item, ao lado do corpo do e-mail, e passam pela mesma pseudonimização. Anexos acima de 5 MB
+  são registrados sem conteúdo.
+
 ### Rotulagem, calibração e limiares
 
 - **Taxonomia** em `docs/TAXONOMIA.md`: a categoria é a ação operacional pedida; tom e ameaça vão
@@ -145,6 +160,10 @@ src/backoffice_agents/
   costs.py         custo e latência por modelo, "e se" do Jev real
   tracing.py       LangSmith / Langfuse por item, spans do Jev
   contracts.py     suíte de contrato dos adapters (mocks e reais)
+  threads.py       ligação de e-mails à conversa e histórico para o agente
+  knowledge.py     base de conhecimento com o Jev pontuando trechos
+  attachments.py   texto de PDF, texto e imagens
+data/kb/           políticas de exemplo (trocas, prazos, pagamento, garantia)
   runner.py        monta tudo, processa e retoma itens
   channels/        poller do Telegram
   eval_shadow.py   avaliação em sombra (acurácia, ECE, latência)

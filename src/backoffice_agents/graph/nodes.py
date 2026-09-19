@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -18,14 +19,17 @@ from langchain_core.messages import (
 
 from .. import decisions
 from ..adapters import Adapters
-from ..adapters.email import EmailMessage
+from ..adapters.email import Attachment, EmailMessage
 from ..adapters.telegram import Button, MockTelegramAdapter
 from ..agent_loop import execute_tool, run_agent
+from ..attachments import extract_all
 from ..config import Settings
 from ..jev import JevClient, JevResponse
+from ..knowledge import KnowledgeBase
 from ..policy import GateOutcome, RiskLevel, Tier, gate_outcome, tier_for
 from ..privacy import Pseudonymizer
 from ..storage import Store
+from ..threads import format_history, thread_history
 from ..tools import ToolContext, ToolRegistry, build_tools
 from ..tracing import traced_jev_ask
 from .state import AgentState
@@ -36,7 +40,11 @@ e deve resolvê-lo usando as ferramentas de CRM e ERP disponíveis.
 Regras:
 1. Nunca invente números de pedido, valores, datas, códigos de rastreio ou prazos. Só afirme o que
    vier das ferramentas. Se um dado não existir, diga isso ao cliente.
-2. Consulte antes de agir: busque o contato no CRM e os dados no ERP antes de responder.
+2. Consulte antes de agir: busque o contato no CRM e os dados no ERP antes de responder. Para
+   qualquer prazo, regra ou condição (troca, devolução, entrega, pagamento, garantia), consulte
+   kb_search e use só o que estiver lá. Se a base não cobrir, diga que vai verificar e escale.
+   Considere o HISTÓRICO DA CONVERSA e os ANEXOS quando existirem: não repita o que já foi dito
+   nem peça o que o cliente já enviou.
 3. Para cancelar pedido, criar pedido ou criar oportunidade, chame a ferramenta correspondente.
    Ações sensíveis passam por aprovação humana automaticamente; não peça permissão ao cliente.
 4. Se o caso exigir negociação, envolver ameaça legal, dado inconsistente ou você não tiver como
@@ -59,6 +67,10 @@ class Nodes:
         self.jev_fallback = jev_fallback
         self.adapters = adapters
         self.store = store
+        kb_dir = Path(settings.kb_dir)
+        self.kb = (KnowledgeBase(kb_dir, jev, settings.kb_candidates, settings.kb_top_k,
+                                 settings.kb_min_score, anonymize=settings.jev_anonymize)
+                   if kb_dir.is_dir() and any(kb_dir.glob("*.md")) else None)
 
     # ---------- helpers ----------
     def _log(self, item_id: str, stage: str, response: JevResponse) -> None:
@@ -66,6 +78,14 @@ class Nodes:
             confidence = answer.confidence
             self.store.log_decision(item_id, stage, key, answer.type, answer.model_dump(),
                                     confidence, response.calibrated, response.model, response.latency_ms)
+
+    def _record_jev(self, item_id: str, stage: str, response: JevResponse) -> None:
+        """Decisões + chamada de modelo: usado pelo _ask e pelas tools que consultam o Jev."""
+        self._log(item_id, stage, response)
+        self.store.log_model_call(item_id, "jev", stage, response.model,
+                                  response.usage.get("input_tokens", 0),
+                                  response.usage.get("output_tokens", 0),
+                                  response.latency_ms, response.calibrated)
 
     def _ask(self, state: AgentState, stage: str, payload: dict[str, Any], questions,
              extra_names: list[str] = ()) -> tuple[JevResponse, str | None]:
@@ -81,11 +101,7 @@ class Nodes:
                 raise
             response = traced_jev_ask(self.jev_fallback.ask, "jev-emulated", payload, questions)
             note = f"{stage}: Jev indisponível ({exc.__class__.__name__}); usado fallback emulado"
-        self._log(state["item_id"], stage, response)
-        self.store.log_model_call(state["item_id"], "jev", stage, response.model,
-                                  response.usage.get("input_tokens", 0),
-                                  response.usage.get("output_tokens", 0),
-                                  response.latency_ms, response.calibrated)
+        self._record_jev(state["item_id"], stage, response)
         return response, note
 
     def _on_llm_call(self, item_id: str, stage: str):
@@ -103,9 +119,12 @@ class Nodes:
                 Button(text="✏️ Corrigir categoria", callback_data=f"lbl:fix:{item_id}")]
 
     def _registry(self, state: AgentState) -> ToolRegistry:
+        item_id = state["item_id"]
         context = ToolContext(customer_email=state["email"]["from_addr"],
                               escalation_reason=state.get("escalation_reason"),
-                              forwarded=list(state.get("forwarded", [])))
+                              forwarded=list(state.get("forwarded", [])),
+                              kb=self.kb,
+                              log_jev=lambda stage, response: self._record_jev(item_id, stage, response))
         return build_tools(self.adapters, context)
 
     @staticmethod
@@ -120,16 +139,20 @@ class Nodes:
                 facts.append({"tool": m.name, "result": result})
         return facts
 
-    def _initial_messages(self, state: AgentState) -> list[BaseMessage]:
+    def _initial_messages(self, state: AgentState, triage: dict[str, Any],
+                          history: list[dict[str, Any]],
+                          attachments: list[dict[str, Any]]) -> list[BaseMessage]:
         email = state["email"]
-        triage = state.get("triage", {})
-        return [
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=(
-                f"TRIAGEM: categoria={triage.get('category')} urgência={triage.get('urgency')}/5\n\n"
-                f"E-MAIL RECEBIDO\nDe: {email.get('from_name')} <{email.get('from_addr')}>\n"
-                f"Assunto: {email.get('subject')}\nData: {email.get('date')}\n\n{email.get('body')}")),
-        ]
+        parts = [f"TRIAGEM: categoria={triage.get('category')} urgência={triage.get('urgency')}/5"]
+        if history:
+            parts.append(format_history(history))
+        parts.append(
+            f"E-MAIL RECEBIDO\nDe: {email.get('from_name')} <{email.get('from_addr')}>\n"
+            f"Assunto: {email.get('subject')}\nData: {email.get('date')}\n\n{email.get('body')}")
+        if attachments:
+            parts.append("ANEXOS (texto extraído):\n" + "\n\n".join(
+                f"--- {a['filename']} ({a['content_type']}) ---\n{a['text']}" for a in attachments))
+        return [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content="\n\n".join(parts))]
 
     def _gate(self, state: AgentState, registry: ToolRegistry, messages: list[BaseMessage]):
         def gate(call: dict[str, Any]) -> tuple[GateOutcome, str]:
@@ -153,14 +176,20 @@ class Nodes:
     def triage(self, state: AgentState) -> dict[str, Any]:
         email = state["email"]
         contact = self.adapters.crm.find_contact_by_email(email["from_addr"])
+        history = thread_history(self.store, state.get("thread_id"), state["item_id"])
+        attachments = extract_all([Attachment(**a) for a in email.get("attachments", [])], self.llm)
+        context_update = {"thread": history, "attachments": attachments}
         try:
             response, fallback_note = self._ask(
-                state, "triage", decisions.triage_state(email, contact.model_dump() if contact else None),
+                state, "triage",
+                decisions.triage_state(email, contact.model_dump() if contact else None,
+                                       history, attachments),
                 decisions.triage_questions(), extra_names=[contact.name] if contact else [])
         except Exception as exc:  # sem Jev e sem fallback: humano assume, nada é perdido
-            return {"tier": Tier.ESCALATE, "status": "escalated",
-                    "escalation_reason": f"triagem indisponível ({exc.__class__.__name__}: {exc})",
-                    "notes": [f"triagem falhou: {exc.__class__.__name__}"]}
+            return context_update | {
+                "tier": Tier.ESCALATE, "status": "escalated",
+                "escalation_reason": f"triagem indisponível ({exc.__class__.__name__}: {exc})",
+                "notes": [f"triagem falhou: {exc.__class__.__name__}"]}
 
         category = response.choice("category")
         urgency = response.score("urgency")
@@ -180,22 +209,33 @@ class Nodes:
                   f"urgência {urgency.score:.1f}, humano {needs_human:.2f}")]
         if fallback_note:
             notes.insert(0, fallback_note)
+        if history:
+            open_count = sum(1 for h in history if h["open"])
+            notes.append(f"thread com {len(history)} mensagem(ns) anterior(es)"
+                         + (f", {open_count} em aberto" if open_count else ""))
+        if attachments:
+            notes.append("anexos: " + ", ".join(f"{a['filename']} ({a['method']})" for a in attachments))
 
         tier = tier_for(category.confidence, self.settings, category.choice)
         if injection >= self.settings.injection_escalate:
             # o conteúdo do e-mail nunca chega ao LLM: humano decide
-            return {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated", "notes": notes,
+            return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated",
+                                     "notes": notes,
                     "escalation_reason": f"triagem: possível prompt injection (p={injection:.2f})"}
         if category.choice == "spam_irrelevante" and tier == Tier.AUTO:
-            return {"triage": triage, "tier": Tier.ESCALATE, "status": "discarded", "notes": notes}
+            return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "discarded",
+                                     "notes": notes}
         if needs_human >= self.settings.confidence_auto:
-            return {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated", "notes": notes,
+            return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated",
+                                     "notes": notes,
                     "escalation_reason": "triagem: caso exige humano"}
         if tier == Tier.ESCALATE:
-            return {"triage": triage, "tier": tier, "status": "escalated", "notes": notes,
+            return context_update | {"triage": triage, "tier": tier, "status": "escalated",
+                                     "notes": notes,
                     "escalation_reason": "triagem: confiança baixa na categoria"}
-        return {"triage": triage, "tier": tier, "status": "triaged", "notes": notes,
-                "messages": messages_to_dict(self._initial_messages(state))}
+        return context_update | {
+            "triage": triage, "tier": tier, "status": "triaged", "notes": notes,
+            "messages": messages_to_dict(self._initial_messages(state, triage, history, attachments))}
 
     def act(self, state: AgentState) -> dict[str, Any]:
         registry = self._registry(state)
@@ -246,7 +286,9 @@ class Nodes:
         draft = state.get("draft_reply", "")
         try:
             response, fallback_note = self._ask(
-                state, "verify", decisions.verify_state(state["email"], draft, self._facts(messages)),
+                state, "verify",
+                decisions.verify_state(state["email"], draft, self._facts(messages),
+                                       state.get("thread"), state.get("attachments")),
                 decisions.verify_questions())
         except Exception as exc:  # sem verificação não se envia nada: humano revisa o rascunho
             return {"status": "escalated",
@@ -324,12 +366,15 @@ class Nodes:
         original = EmailMessage(**email_dict)
         self.store.set_item_state(state["item_id"], "sending", {**dict(state), "status": "sending"})
 
-        self.adapters.email.send_reply(original, state.get("draft_reply", ""))
+        sent_message_id = self.adapters.email.send_reply(original, state.get("draft_reply", ""))
+        if sent_message_id:
+            self.store.set_sent_message_id(state["item_id"], sent_message_id)
         for fwd in state.get("forwarded", []):
             self.adapters.email.forward(original, fwd["to"], fwd["note"])
         sent_at = datetime.now(UTC).isoformat(timespec="seconds")
 
         update = {"status": "sent", "approval": None, "sent_at": sent_at,
+                  "sent_message_id": sent_message_id or "",
                   "notes": state.get("notes", []) + ["e-mail enviado"]}
         self.store.set_item_state(state["item_id"], "sent", {**dict(state), **update})
         self.adapters.telegram.send_message(

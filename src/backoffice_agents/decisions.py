@@ -65,11 +65,20 @@ def triage_questions() -> dict[str, Question]:
     }
 
 
-def triage_state(email: dict[str, Any], contact: dict[str, Any] | None) -> dict[str, Any]:
-    return {
+def triage_state(email: dict[str, Any], contact: dict[str, Any] | None,
+                 thread: list[dict[str, Any]] | None = None,
+                 attachments: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    state: dict[str, Any] = {
         "email": {k: email.get(k, "") for k in ("from_addr", "from_name", "subject", "body", "date")},
         "crm_contact": contact or {"found": False},
     }
+    if thread:
+        state["conversation_history"] = [
+            {k: h.get(k) for k in ("date", "customer_message", "our_reply", "status", "open", "category")}
+            for h in thread]
+    if attachments:
+        state["attachments"] = [{"filename": a["filename"], "text": a["text"]} for a in attachments]
+    return state
 
 
 def gate_questions(tool_name: str) -> dict[str, Question]:
@@ -103,9 +112,17 @@ def verify_questions() -> dict[str, Question]:
     }
 
 
-def verify_state(email: dict[str, Any], draft: str, facts: list[dict[str, Any]]) -> dict[str, Any]:
-    return {
+def verify_state(email: dict[str, Any], draft: str, facts: list[dict[str, Any]],
+                 thread: list[dict[str, Any]] | None = None,
+                 attachments: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    state: dict[str, Any] = {
         "customer_request": {"subject": email.get("subject", ""), "body": email.get("body", "")},
         "data_gathered": facts,
         "draft_reply": draft,
     }
+    if thread:
+        state["conversation_history"] = [
+            {k: h.get(k) for k in ("date", "customer_message", "our_reply")} for h in thread]
+    if attachments:
+        state["attachments"] = [{"filename": a["filename"], "text": a["text"]} for a in attachments]
+    return state

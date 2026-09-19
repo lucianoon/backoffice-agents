@@ -15,6 +15,7 @@ from .jev import JevClient, build_jev_client
 from .jev.emulated import EmulatedJevClient
 from .llm import build_llm
 from .storage import Store
+from .threads import resolve_thread
 from .tracing import configure_tracing, run_config
 
 TERMINAL = {"sent", "escalated", "discarded", "failed"}
@@ -51,7 +52,9 @@ class Runner:
         for message in self.adapters.email.fetch_unread():
             item_id = f"email:{message.id}"
             if self.store.get_item(item_id) is None:
-                self.store.upsert_item(item_id, "email", "new", message.model_dump())
+                thread_id = resolve_thread(self.store, message, item_id, self.settings.thread_window_days)
+                self.store.upsert_item(item_id, "email", "new", message.model_dump(),
+                                       thread_id=thread_id, message_id=message.message_id)
                 ids.append(item_id)
             self.adapters.email.mark_processed(message.id)
         return ids
@@ -64,7 +67,7 @@ class Runner:
         state: dict[str, Any] = {"item_id": item_id, "email": item["payload"], "messages": [],
                                  "regenerations": 0, "notes": [], "status": "processing",
                                  "pending_action": None, "approval": None, "forwarded": [],
-                                 "sent_at": None}
+                                 "sent_at": None, "thread_id": item.get("thread_id") or item_id}
         self.store.set_item_state(item_id, "processing", state)
         return self._invoke(item_id, state)
 

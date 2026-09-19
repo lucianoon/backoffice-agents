@@ -58,10 +58,10 @@ def test_claim_next_approval_moves_to_applying_once(settings):
 def test_run_pending_consumes_queue_with_claims(make_runner):
     from langchain_core.messages import AIMessage
 
-    runner = make_runner([AIMessage(content="ok\nEquipe de Atendimento")] * 6)
+    runner = make_runner([AIMessage(content="ok\nEquipe de Atendimento")] * 7)
     runner.ingest_emails()
     outcomes = runner.run_pending()
-    assert len(outcomes) == 6
+    assert len(outcomes) == 7
     assert all(item["claimed_by"] == runner.store.worker_id for item in runner.store.list_items())
     assert runner.run_pending() == []
 

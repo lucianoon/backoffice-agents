@@ -23,6 +23,8 @@ class ToolContext:
     customer_email: str
     escalation_reason: str | None = None
     forwarded: list[dict[str, str]] = field(default_factory=list)
+    kb: Any = None                                  # KnowledgeBase (opcional)
+    log_jev: Callable[[str, Any], None] | None = None  # registra as chamadas ao Jev feitas por tools
 
 
 @dataclass
@@ -80,6 +82,11 @@ class _Forward(BaseModel):
 
 class _Escalate(BaseModel):
     reason: str = Field(description="por que um humano precisa assumir")
+
+
+class _Query(BaseModel):
+    query: str = Field(description="pergunta em linguagem natural, "
+                                   "ex.: 'prazo para troca de produto com defeito'")
 
 
 def build_tools(adapters: Adapters, context: ToolContext) -> ToolRegistry:
@@ -146,6 +153,11 @@ def build_tools(adapters: Adapters, context: ToolContext) -> ToolRegistry:
         context.escalation_reason = reason
         return {"ok": True}
 
+    def kb_search(query: str) -> dict:
+        if context.kb is None:
+            return {"found": False, "hint": "base de conhecimento não configurada; não invente regra"}
+        return context.kb.to_tool_result(context.kb.search(query, on_jev=context.log_jev))
+
     specs: list[tuple[Callable, type[BaseModel], str, RiskLevel]] = [
         (crm_find_contact, _Email, "Busca o contato do cliente no CRM pelo e-mail.", RiskLevel.LOW),
         (crm_open_deals, _Email, "Lista oportunidades abertas do cliente no CRM.", RiskLevel.LOW),
@@ -162,6 +174,9 @@ def build_tools(adapters: Adapters, context: ToolContext) -> ToolRegistry:
         (email_forward, _Forward, "Encaminha o e-mail do cliente para outro setor.", RiskLevel.MEDIUM),
         (escalate_to_human, _Escalate,
          "Passa o caso para um humano quando não é possível resolver com segurança.", RiskLevel.LOW),
+        (kb_search, _Query,
+         ("Consulta as políticas internas (trocas, devoluções, prazos de entrega, pagamento, garantia). "
+          "Use ANTES de afirmar qualquer prazo, regra ou condição ao cliente."), RiskLevel.LOW),
     ]
     tools = [StructuredTool.from_function(func=fn, name=fn.__name__, description=desc, args_schema=schema)
              for fn, schema, desc, _ in specs]

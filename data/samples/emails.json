@@ -52,5 +52,14 @@
     "subject": "Isso é um absurdo",
     "body": "Já é a terceira vez que escrevo e ninguém responde. Minha cadeira chegou com o braço quebrado, quero a troca ou vou no Procon. Meu pedido é o PED-70001, comprei em agosto.",
     "date": "2026-09-19T10:02:00-03:00"
+  },
+  {
+    "id": "em-007",
+    "from_addr": "mariana.souza@lojaazul.com.br",
+    "from_name": "Mariana Souza",
+    "to": "atendimento@exemplo.com",
+    "subject": "Re: Pedido PED-78231 - previsão de entrega?",
+    "body": "Obrigada pelo retorno. Se não chegar até dia 22 como vocês disseram, posso cancelar e pedir o reembolso? Qual o prazo do estorno?\n\nMariana",
+    "date": "2026-09-19T11:05:00-03:00"
   }
 ]

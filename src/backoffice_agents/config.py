@@ -65,6 +65,15 @@ class Settings(BaseSettings):
     # Prompt injection: probabilidade (Noul da triagem) acima da qual o item escala sem passar pelo LLM
     injection_escalate: float = 0.7
 
+    # Base de conhecimento de políticas (arquivos .md); o Jev pontua a relevância dos trechos
+    kb_dir: str = "data/kb"
+    kb_candidates: int = 8       # trechos da busca lexical enviados ao Jev numa só chamada
+    kb_top_k: int = 3            # trechos que chegam ao LLM
+    kb_min_score: float = 2.5    # relevância mínima (escala 1 a 4)
+
+    # Threads: e-mails do mesmo remetente com o mesmo assunto normalizado dentro deste prazo
+    thread_window_days: int = 14
+
     # Persistência e fila. Postgres: postgresql+psycopg://user:pass@host:5432/backoffice
     db_url: str = "sqlite:///data/backoffice.db"
     samples_path: str = "data/samples/emails.json"
