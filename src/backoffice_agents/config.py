@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     imap_user: str | None = None
     imap_password: str | None = None
     imap_folder: str = "INBOX"
+    imap_fetch_limit: int = 25          # quantos e-mails por ciclo no máximo (janela da fila)
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
     smtp_user: str | None = None

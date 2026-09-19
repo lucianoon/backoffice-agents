@@ -108,8 +108,10 @@ class ImapSmtpEmailAdapter:
         conn = self._imap()
         try:
             _, data = conn.search(None, "UNSEEN")
+            # Os mais recentes primeiro, já limitados: uma caixa cheia não vira inundação.
+            uids = data[0].split()[-self._s.imap_fetch_limit:]
             messages: list[EmailMessage] = []
-            for uid in data[0].split():
+            for uid in uids:
                 # BODY.PEEK não marca como lido
                 _, parts = conn.fetch(uid, "(BODY.PEEK[])")
                 msg = email_lib.message_from_bytes(parts[0][1])
