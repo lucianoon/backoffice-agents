@@ -224,10 +224,12 @@ def contracts(allow_writes: bool = typer.Option(False, help="executa também os 
               known_order: str = typer.Option("PED-78231"),
               known_sku: str = typer.Option("SKU-1001")) -> None:
     """Suíte de contrato contra os adapters configurados (mocks ou sistemas reais)."""
+    from .adapters import build_adapters
     from .contracts import check_all
 
-    runner = _runner()
-    results = check_all(runner.adapters, known_email, known_order, known_sku, allow_writes)
+    load_dotenv()
+    # só os adapters: não precisa de LLM nem de chave de API (roda no CI sem segredos)
+    results = check_all(build_adapters(get_settings()), known_email, known_order, known_sku, allow_writes)
     failed_total = 0
     for r in results:
         rprint(f"[bold]{r.adapter}[/bold]: {len(r.passed)} ok, {len(r.failed)} falhas, "
