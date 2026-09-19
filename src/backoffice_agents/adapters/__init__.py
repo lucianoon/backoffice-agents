@@ -24,7 +24,9 @@ def build_adapters(settings: Settings) -> Adapters:
         email = MockEmailAdapter(settings.samples_path)
 
     if settings.telegram_adapter == "bot":
-        telegram = BotApiTelegramAdapter(settings.telegram_bot_token or "", settings.telegram_chat_id or "")
+        operators = {op.strip() for op in settings.telegram_operators.split(",") if op.strip()}
+        telegram = BotApiTelegramAdapter(settings.telegram_bot_token or "", settings.telegram_chat_id or "",
+                                         operators)
     else:
         telegram = MockTelegramAdapter(auto_approve=settings.telegram_mock_auto_approve)
 

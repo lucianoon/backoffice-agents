@@ -1,4 +1,8 @@
-"""Telegram como canal do operador: notificações, aprovações com botões e comandos."""
+"""Telegram como canal do operador: notificações, aprovações com botões e comandos.
+
+Segurança: só o chat autorizado é aceito e, quando `operators` está definido, só os usuários
+listados podem aprovar, rejeitar ou rotular. O id do usuário fica registrado em quem decidiu.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ class Button(BaseModel):
 class Update(BaseModel):
     update_id: int
     chat_id: str = ""
+    user_id: str = ""
     text: str = ""
     callback_id: str = ""
     callback_data: str = ""
@@ -51,12 +56,36 @@ class MockTelegramAdapter:
         return None
 
 
+def parse_updates(raw: list[dict[str, Any]], chat_id: str, operators: set[str]) -> list[Update]:
+    """Converte o JSON do Bot API em Updates, descartando chats e usuários não autorizados."""
+    updates: list[Update] = []
+    for item in raw:
+        if "callback_query" in item:
+            cq = item["callback_query"]
+            update = Update(update_id=item["update_id"], chat_id=str(cq["message"]["chat"]["id"]),
+                            user_id=str(cq.get("from", {}).get("id", "")), callback_id=cq["id"],
+                            callback_data=cq.get("data", ""))
+        elif "message" in item:
+            msg = item["message"]
+            update = Update(update_id=item["update_id"], chat_id=str(msg["chat"]["id"]),
+                            user_id=str(msg.get("from", {}).get("id", "")), text=msg.get("text", ""))
+        else:
+            continue
+        if update.chat_id != chat_id:
+            continue
+        if operators and update.user_id not in operators:
+            continue
+        updates.append(update)
+    return updates
+
+
 class BotApiTelegramAdapter:
-    def __init__(self, token: str, chat_id: str) -> None:
+    def __init__(self, token: str, chat_id: str, operators: set[str] | None = None) -> None:
         if not token or not chat_id:
             raise ValueError("TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID são obrigatórios")
         self._base = f"https://api.telegram.org/bot{token}"
         self._chat_id = chat_id
+        self._operators = set(operators or ())
         self._http = httpx.Client(timeout=35)
 
     def send_message(self, text: str, buttons: list[Button] | None = None) -> str:
@@ -74,19 +103,7 @@ class BotApiTelegramAdapter:
             params["offset"] = offset
         response = self._http.get(f"{self._base}/getUpdates", params=params)
         response.raise_for_status()
-        updates: list[Update] = []
-        for item in response.json().get("result", []):
-            if "callback_query" in item:
-                cq = item["callback_query"]
-                updates.append(Update(update_id=item["update_id"],
-                                      chat_id=str(cq["message"]["chat"]["id"]),
-                                      callback_id=cq["id"], callback_data=cq.get("data", "")))
-            elif "message" in item:
-                msg = item["message"]
-                updates.append(Update(update_id=item["update_id"], chat_id=str(msg["chat"]["id"]),
-                                      text=msg.get("text", "")))
-        # só aceita o chat autorizado
-        return [u for u in updates if u.chat_id == self._chat_id]
+        return parse_updates(response.json().get("result", []), self._chat_id, self._operators)
 
     def answer_callback(self, callback_id: str, text: str) -> None:
         self._http.post(f"{self._base}/answerCallbackQuery",

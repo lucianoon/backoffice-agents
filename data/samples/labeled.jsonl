@@ -34,3 +34,4 @@
 {"id": "em-128", "labels": {"category": "suporte_tecnico", "urgency": 3, "needs_human": false}}
 {"id": "em-129", "labels": {"category": "comercial_vendas", "urgency": 2, "needs_human": false}}
 {"id": "em-130", "labels": {"category": "cancelamento", "urgency": 4, "needs_human": true}}
+{"id": "em-131", "labels": {"category": "spam_irrelevante", "urgency": 3, "needs_human": true}}

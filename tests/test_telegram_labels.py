@@ -25,7 +25,7 @@ def test_ok_button_confirms_predicted_category(make_runner):
     text, buttons = handle_callback(runner, f"lbl:ok:{MARIANA}", "telegram:1")
     assert "confirmada" in text and buttons is None
     decision = [d for d in runner.store.list_decisions(MARIANA) if d["question_id"] == "category"][0]
-    assert decision["human_label"] == "status_pedido"
+    assert decision["human_label"] == "status_pedido" and decision["human_label_by"] == "telegram:1"
 
 
 def test_fix_button_offers_categories_then_records_correction(make_runner):

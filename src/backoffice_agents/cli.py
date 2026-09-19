@@ -219,6 +219,26 @@ def labels_merge(a: str, b: str, out: str = typer.Option(..., help="JSONL consol
 
 
 @app.command()
+def contracts(allow_writes: bool = typer.Option(False, help="executa também os checks de escrita"),
+              known_email: str = typer.Option("mariana.souza@lojaazul.com.br"),
+              known_order: str = typer.Option("PED-78231"),
+              known_sku: str = typer.Option("SKU-1001")) -> None:
+    """Suíte de contrato contra os adapters configurados (mocks ou sistemas reais)."""
+    from .contracts import check_all
+
+    runner = _runner()
+    results = check_all(runner.adapters, known_email, known_order, known_sku, allow_writes)
+    failed_total = 0
+    for r in results:
+        rprint(f"[bold]{r.adapter}[/bold]: {len(r.passed)} ok, {len(r.failed)} falhas, "
+               f"{len(r.skipped)} pulados")
+        for name, reason in r.failed:
+            rprint(f"  [red]✗ {name}[/red]: {reason}")
+        failed_total += len(r.failed)
+    raise typer.Exit(code=1 if failed_total else 0)
+
+
+@app.command()
 def costs(item_id: str = typer.Option(None, help="restringe a um item")) -> None:
     """Custo e latência reais por modelo, com o 'e se' do Jev real no lugar do emulador."""
     from .costs import cost_report

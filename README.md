@@ -71,6 +71,17 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
   anota isso no item; sem fallback, o item escala para um humano. No gate, a ação cai para aprovação
   humana. Erros de outra natureza deixam o item em `error`, reprocessado até `MAX_ATTEMPTS` e então
   `failed`, com aviso no Telegram.
+- **Prompt injection**: a triagem pergunta ao Jev se o e-mail tenta instruir o assistente (ignorar
+  regras, agir em nome de outro cliente, revelar dados). Acima de `INJECTION_ESCALATE` o item escala
+  e o conteúdo nunca chega ao LLM. O prompt do agente também trata o e-mail como dado, não instrução.
+- **Operadores do Telegram**: só o chat em `TELEGRAM_CHAT_ID` é aceito e, com `TELEGRAM_OPERATORS`
+  (ids de usuário separados por vírgula), só esses usuários aprovam, rejeitam ou rotulam. Quem
+  decidiu fica registrado em `approvals.decided_by` e `decisions.human_label_by`.
+- **Contrato dos adapters**: `backoffice contracts` roda a mesma suíte contra mocks ou sistemas
+  reais (leituras por padrão; `--allow-writes` inclui criar e cancelar pedido). Ao implementar um
+  CRM ou ERP real, o grafo não muda; o contrato garante que o adapter se comporta como o mock.
+- **CI**: `.github/workflows/ci.yml` roda ruff, a suíte (inclusive o teste de Postgres) e os
+  contratos a cada push e pull request.
 - **Efeitos externos no máximo uma vez**: o envio grava um marcador `sending` em disco antes de chamar
   o SMTP e `sent_at` depois; uma aprovação em aplicação fica `applying`. Se o processo morrer no meio,
   a retomada não repete o efeito: o item vai para um humano confirmar no sistema de destino.
@@ -82,7 +93,8 @@ Requer Python 3.12 e [uv](https://docs.astral.sh/uv/).
 ```bash
 cp .env.example .env        # preencha LLM_* (ou exporte OPENAI_API_KEY)
 uv sync --python 3.12
-uv run pytest               # 53 testes, tudo com mocks e LLM roteirizado (+1 no Postgres com TEST_DB_URL)
+uv run pytest               # 60 testes, tudo com mocks e LLM roteirizado (+1 no Postgres com TEST_DB_URL)
+uv run backoffice contracts --allow-writes   # suíte de contrato dos adapters configurados
 
 uv run backoffice demo      # ponta a ponta com os 6 e-mails de exemplo e mocks
 uv run backoffice items     # lista os itens e o status final
@@ -132,6 +144,7 @@ src/backoffice_agents/
   storage.py       SQLAlchemy (SQLite/Postgres): fila de itens com reserva atômica, decisões, aprovações, chamadas a modelo
   costs.py         custo e latência por modelo, "e se" do Jev real
   tracing.py       LangSmith / Langfuse por item, spans do Jev
+  contracts.py     suíte de contrato dos adapters (mocks e reais)
   runner.py        monta tudo, processa e retoma itens
   channels/        poller do Telegram
   eval_shadow.py   avaliação em sombra (acurácia, ECE, latência)

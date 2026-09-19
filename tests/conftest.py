@@ -58,6 +58,7 @@ DEFAULTS: dict[str, Any] = {
     "urgency": 2.0,
     "needs_human": 0.1,
     "sensitive": 0.05,
+    "injection": 0.05,
     "appropriate": 0.9,
     "args_complete": 0.9,
     "resolves": 0.9,

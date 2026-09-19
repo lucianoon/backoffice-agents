@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     telegram_mock_auto_approve: bool = True
+    # ids de usuário do Telegram que podem aprovar/rotular (vazio = qualquer um no chat autorizado)
+    telegram_operators: str = ""
+
+    # Prompt injection: probabilidade (Noul da triagem) acima da qual o item escala sem passar pelo LLM
+    injection_escalate: float = 0.7
 
     # Persistência e fila. Postgres: postgresql+psycopg://user:pass@host:5432/backoffice
     db_url: str = "sqlite:///data/backoffice.db"

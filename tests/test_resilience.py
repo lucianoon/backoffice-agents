@@ -120,3 +120,13 @@ def test_approval_stuck_in_applying_is_escalated(make_runner):
     assert runner.run_pending() == [(MARIANA, "escalated")]
     assert runner.store.get_approval(approval_id)["status"] == "applied"
     assert runner.adapters.erp.get_order("PED-78410").status == "aguardando_pagamento"
+
+
+def test_prompt_injection_escalates_before_llm(make_runner):
+    runner = make_runner(HAPPY, jev=FakeJev({"injection": 0.9}))
+    ingest_only(runner, MARIANA)
+    final = runner.process_item(MARIANA)
+    assert final["status"] == "escalated"
+    assert "prompt injection" in final["escalation_reason"]
+    assert final["triage"]["injection"] == 0.9
+    assert runner.llm.calls == 0 and runner.adapters.email.sent == []

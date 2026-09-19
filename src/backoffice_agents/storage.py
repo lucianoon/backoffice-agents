@@ -60,6 +60,7 @@ decisions = Table(
     Column("model", String(64), nullable=False),
     Column("latency_ms", Float, nullable=False),
     Column("human_label", String(128)),
+    Column("human_label_by", String(128)),
     Column("created_at", String(40), nullable=False),
 )
 
@@ -125,11 +126,14 @@ class Store:
         """Bancos criados antes de uma coluna existir ganham a coluna (create_all não altera)."""
         inspector = inspect(self.engine)
         existing = {c["name"] for c in inspector.get_columns("work_items")}
+        decision_columns = {c["name"] for c in inspector.get_columns("decisions")}
         with self.engine.begin() as conn:
             if "attempts" not in existing:
                 conn.execute(text("ALTER TABLE work_items ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"))
             if "claimed_by" not in existing:
                 conn.execute(text("ALTER TABLE work_items ADD COLUMN claimed_by VARCHAR(128)"))
+            if "human_label_by" not in decision_columns:
+                conn.execute(text("ALTER TABLE decisions ADD COLUMN human_label_by VARCHAR(128)"))
 
     # ---- work items ----
     def upsert_item(self, item_id: str, source: str, status: str, payload: dict[str, Any],
@@ -217,11 +221,13 @@ class Store:
                 answer=json.dumps(answer, ensure_ascii=False), confidence=confidence,
                 calibrated=int(calibrated), model=model, latency_ms=latency_ms, created_at=_now()))
 
-    def set_human_label(self, item_id: str, stage: str, question_id: str, label: str) -> int:
+    def set_human_label(self, item_id: str, stage: str, question_id: str, label: str,
+                        labeled_by: str | None = None) -> int:
         with self.engine.begin() as conn:
             result = conn.execute(update(decisions).where(
                 (decisions.c.item_id == item_id) & (decisions.c.stage == stage)
-                & (decisions.c.question_id == question_id)).values(human_label=label))
+                & (decisions.c.question_id == question_id)
+            ).values(human_label=label, human_label_by=labeled_by))
         return result.rowcount
 
     def list_decisions(self, item_id: str | None = None) -> list[dict[str, Any]]:

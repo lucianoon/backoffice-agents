@@ -31,8 +31,8 @@ def _decide(runner: Runner, approval_id: int, approved: bool, who: str) -> str:
     return f"#{approval_id} {verb} → item {approval['item_id']} agora {final['status']}"
 
 
-def _label_category(runner: Runner, item_id: str, category: str | None) -> str:
-    """Grava o rótulo humano da categoria. `None` = confirma a categoria prevista."""
+def _label_category(runner: Runner, item_id: str, category: str | None, who: str) -> str:
+    """Grava o rótulo humano da categoria e quem rotulou. `None` = confirma a categoria prevista."""
     item = runner.store.get_item(item_id)
     if item is None:
         return f"item {item_id} não existe"
@@ -40,7 +40,7 @@ def _label_category(runner: Runner, item_id: str, category: str | None) -> str:
     label = category or predicted
     if not label:
         return f"item {item_id} não tem triagem para rotular"
-    n = runner.store.set_human_label(item_id, "triage", "category", label)
+    n = runner.store.set_human_label(item_id, "triage", "category", label, labeled_by=who)
     if n == 0:
         return f"item {item_id} não tem decisão de triagem registrada"
     verdict = "confirmada" if label == predicted else f"corrigida ({predicted} → {label})"
@@ -55,14 +55,14 @@ def handle_callback(runner: Runner, data: str, who: str) -> Reply:
     if action == "lbl" and len(parts) >= 3:
         sub, item_id = parts[1], ":".join(parts[2:])
         if sub == "ok":
-            return _label_category(runner, item_id, None), None
+            return _label_category(runner, item_id, None, who), None
         if sub == "fix":
             buttons = [Button(text=cat, callback_data=f"lbl:set:{item_id}:{cat}") for cat in CATEGORIES]
             return f"Qual é a categoria correta de {item_id}?", buttons
         if sub == "set":
             item_id, _, category = item_id.rpartition(":")
             if category in CATEGORIES:
-                return _label_category(runner, item_id, category), None
+                return _label_category(runner, item_id, category, who), None
     return "botão desconhecido", None
 
 
@@ -104,7 +104,7 @@ def poll_forever(runner: Runner, sleep_s: float = 1.0) -> None:
         updates = telegram.get_updates(offset)
         for update in updates:
             offset = update.update_id + 1
-            who = f"telegram:{update.chat_id}"
+            who = f"telegram:{update.user_id or update.chat_id}"
             if update.callback_data:
                 text, buttons = handle_callback(runner, update.callback_data, who)
                 telegram.answer_callback(update.callback_id, "ok")
