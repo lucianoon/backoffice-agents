@@ -15,6 +15,7 @@ from .jev import JevClient, build_jev_client
 from .jev.emulated import EmulatedJevClient
 from .llm import build_llm
 from .storage import Store
+from .tenant import Tenant, load_tenant
 from .threads import resolve_thread
 from .tracing import configure_tracing, run_config
 
@@ -29,11 +30,13 @@ class Runner:
     adapters: Adapters
     store: Store
     jev_fallback: JevClient | None = None
+    tenant: Tenant | None = None
 
     def __post_init__(self) -> None:
         configure_tracing(self.settings)
+        self.tenant = self.tenant or load_tenant(self.settings.tenant_file)
         self.graph = build_graph(Nodes(self.settings, self.llm, self.jev, self.adapters, self.store,
-                                       jev_fallback=self.jev_fallback))
+                                       jev_fallback=self.jev_fallback, tenant=self.tenant))
 
     @classmethod
     def from_settings(cls, settings: Settings, llm: BaseChatModel | None = None,

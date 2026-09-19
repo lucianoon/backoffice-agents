@@ -65,6 +65,7 @@ decisions = Table(
     Column("latency_ms", Float, nullable=False),
     Column("human_label", String(128)),
     Column("human_label_by", String(128)),
+    Column("version", String(64)),                     # tenant@versão (taxonomia/prompt) em vigor
     Column("created_at", String(40), nullable=False),
 )
 
@@ -93,6 +94,7 @@ model_calls = Table(
     Column("output_tokens", Integer, nullable=False, default=0),
     Column("latency_ms", Float, nullable=False),
     Column("calibrated", Integer, nullable=False, default=1),
+    Column("version", String(64)),
     Column("created_at", String(40), nullable=False),
 )
 
@@ -154,6 +156,11 @@ class Store:
                     conn.execute(text(f"ALTER TABLE work_items ADD COLUMN {column} VARCHAR({size})"))
             if "human_label_by" not in decision_columns:
                 conn.execute(text("ALTER TABLE decisions ADD COLUMN human_label_by VARCHAR(128)"))
+            if "version" not in decision_columns:
+                conn.execute(text("ALTER TABLE decisions ADD COLUMN version VARCHAR(64)"))
+            call_columns = {c["name"] for c in inspector.get_columns("model_calls")}
+            if "version" not in call_columns:
+                conn.execute(text("ALTER TABLE model_calls ADD COLUMN version VARCHAR(64)"))
 
     # ---- work items ----
     def upsert_item(self, item_id: str, source: str, status: str, payload: dict[str, Any],
@@ -271,12 +278,13 @@ class Store:
     # ---- decisions ----
     def log_decision(self, item_id: str, stage: str, question_id: str, question_type: str,
                      answer: dict[str, Any], confidence: float, calibrated: bool, model: str,
-                     latency_ms: float) -> None:
+                     latency_ms: float, version: str = "") -> None:
         with self.engine.begin() as conn:
             conn.execute(decisions.insert().values(
                 item_id=item_id, stage=stage, question_id=question_id, question_type=question_type,
                 answer=json.dumps(answer, ensure_ascii=False), confidence=confidence,
-                calibrated=int(calibrated), model=model, latency_ms=latency_ms, created_at=_now()))
+                calibrated=int(calibrated), model=model, latency_ms=latency_ms, version=version,
+                created_at=_now()))
 
     def set_human_label(self, item_id: str, stage: str, question_id: str, label: str,
                         labeled_by: str | None = None) -> int:
@@ -297,12 +305,13 @@ class Store:
 
     # ---- model calls (custo e latência) ----
     def log_model_call(self, item_id: str, kind: str, stage: str, model: str, input_tokens: int,
-                       output_tokens: int, latency_ms: float, calibrated: bool = True) -> None:
+                       output_tokens: int, latency_ms: float, calibrated: bool = True,
+                       version: str = "") -> None:
         with self.engine.begin() as conn:
             conn.execute(model_calls.insert().values(
                 item_id=item_id, kind=kind, stage=stage, model=model, input_tokens=int(input_tokens),
                 output_tokens=int(output_tokens), latency_ms=float(latency_ms),
-                calibrated=int(calibrated), created_at=_now()))
+                calibrated=int(calibrated), version=version, created_at=_now()))
 
     def list_model_calls(self, item_id: str | None = None) -> list[dict[str, Any]]:
         stmt = select(model_calls).order_by(model_calls.c.id)

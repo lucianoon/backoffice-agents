@@ -2,6 +2,7 @@
 
 Instruções em inglês (idioma primário do Jev); o `state` vai em português, que é o
 que o piloto precisa medir. Cada pergunta é um "gut check" sobre uma coisa só.
+Taxonomia e níveis vêm do tenant (tenants/*.toml); sem tenant, valem os padrões.
 """
 
 from __future__ import annotations
@@ -9,44 +10,20 @@ from __future__ import annotations
 from typing import Any
 
 from .jev import ChoiceQuestion, NoulQuestion, Question, ScoreQuestion
+from .tenant import DEFAULT_CATEGORIES, DEFAULT_QUALITY_LEVELS, DEFAULT_URGENCY_LEVELS, Tenant, default_tenant
 
-# Categoria = a AÇÃO OPERACIONAL que o cliente pede. Tom, raiva ou ameaça legal não mudam a
-# categoria: vão para `needs_human` e `urgency`. Ver docs/TAXONOMIA.md (regras para rotuladores).
-CATEGORIES: dict[str, str] = {
-    "status_pedido": "where is my order: tracking code, delivery date, delay of an order already placed",
-    "financeiro_cobranca": "boleto or invoice copy, payment not recognized, refund of an amount charged, "
-                           "tax document (nota fiscal)",
-    "comercial_vendas": "quote, price, discount, availability or lead time for a purchase not yet placed",
-    "cancelamento": "cancel an order, subscription or contract that is not yet delivered/finished",
-    "suporte_tecnico": "product defective, damaged or wrong item; warranty, exchange, return, how to use",
-    "reclamacao_atendimento": "complaint about the service itself (no reply, delays, rude treatment, "
-                              "wants a manager) with NO other concrete operational request",
-    "spam_irrelevante": "marketing, phishing, newsletters or unrelated to the company",
-    "outro": "a legitimate request that fits none of the above",
-}
-
-URGENCY_LEVELS = [
-    "no urgency: informational, can wait days",
-    "low: routine request, answer within 2 business days",
-    "medium: customer expects an answer today",
-    "high: deadline within 24h or money at risk",
-    "critical: legal threat, repeated ignored contact or service outage",
-]
-
-QUALITY_LEVELS = [
-    "unacceptable: wrong, rude or ignores the question",
-    "poor: partially answers, vague or confusing",
-    "acceptable: answers the question but could be clearer",
-    "good: clear, complete, polite",
-    "excellent: clear, complete, polite, anticipates next step",
-]
+# Compatibilidade: módulos antigos importam estas constantes.
+CATEGORIES = DEFAULT_CATEGORIES
+URGENCY_LEVELS = DEFAULT_URGENCY_LEVELS
+QUALITY_LEVELS = DEFAULT_QUALITY_LEVELS
 
 
-def triage_questions() -> dict[str, Question]:
+def triage_questions(tenant: Tenant | None = None) -> dict[str, Question]:
+    tenant = tenant or default_tenant()
     return {
         "category": ChoiceQuestion(instructions="What is the main intent of this customer email?",
-                                   criteria=dict(CATEGORIES)),
-        "urgency": ScoreQuestion(instructions="How urgent is this email?", criteria=URGENCY_LEVELS),
+                                   criteria=dict(tenant.categories)),
+        "urgency": ScoreQuestion(instructions="How urgent is this email?", criteria=tenant.urgency_levels),
         "needs_human": NoulQuestion(
             instructions="Does this email require a human agent rather than an automated assistant?",
             criteria={"true": "anger, legal threat, ambiguity, negotiation, irreversible request",
@@ -101,11 +78,13 @@ def gate_state(email: dict[str, Any], triage: dict[str, Any], tool_name: str, ar
     }
 
 
-def verify_questions() -> dict[str, Question]:
+def verify_questions(tenant: Tenant | None = None) -> dict[str, Question]:
+    tenant = tenant or default_tenant()
     return {
         "resolves": NoulQuestion(
             instructions="Does the draft reply actually answer what the customer asked?"),
-        "quality": ScoreQuestion(instructions="Rate the draft reply quality.", criteria=QUALITY_LEVELS),
+        "quality": ScoreQuestion(instructions="Rate the draft reply quality.",
+                                 criteria=tenant.quality_levels),
         "unsupported_claims": NoulQuestion(
             instructions="Does the draft state facts (dates, amounts, codes, promises) that are NOT "
                          "supported by the data gathered?"),

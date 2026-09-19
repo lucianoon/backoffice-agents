@@ -20,6 +20,7 @@ FALSE_WORDS = {"false", "não", "nao", "no", "0"}
 class CalibrationRow:
     question_id: str
     model: str
+    version: str
     n: int
     accuracy: float
     ece: float
@@ -51,17 +52,17 @@ def _judge(decision: dict[str, Any]) -> tuple[bool, float] | None:
 
 
 def calibration_report(decisions: list[dict[str, Any]]) -> list[CalibrationRow]:
-    groups: dict[tuple[str, str], list[tuple[bool, float]]] = defaultdict(list)
+    groups: dict[tuple[str, str, str], list[tuple[bool, float]]] = defaultdict(list)
     for d in decisions:
         if d.get("human_label") is None:
             continue
         judged = _judge(d)
         if judged is not None:
-            groups[(d["question_id"], d["model"])].append(judged)
+            groups[(d["question_id"], d["model"], d.get("version") or "")].append(judged)
     rows = []
-    for (question_id, model), pairs in sorted(groups.items()):
+    for (question_id, model, version), pairs in sorted(groups.items()):
         rows.append(CalibrationRow(
-            question_id=question_id, model=model, n=len(pairs),
+            question_id=question_id, model=model, version=version, n=len(pairs),
             accuracy=sum(1 for ok, _ in pairs if ok) / len(pairs),
             ece=expected_calibration_error([(c, ok) for ok, c in pairs]),
             mean_confidence=statistics.fmean(c for _, c in pairs),
@@ -72,8 +73,8 @@ def calibration_report(decisions: list[dict[str, Any]]) -> list[CalibrationRow]:
 def format_report(rows: list[CalibrationRow]) -> str:
     if not rows:
         return "Nenhuma decisão rotulada ainda."
-    lines = ["pergunta | modelo | n | acurácia | ECE | conf. média"]
+    lines = ["pergunta | modelo | versão | n | acurácia | ECE | conf. média"]
     for r in rows:
-        lines.append(f"{r.question_id} | {r.model} | {r.n} | {r.accuracy:.0%} | {r.ece:.3f} | "
-                     f"{r.mean_confidence:.2f}")
+        lines.append(f"{r.question_id} | {r.model} | {r.version or '-'} | {r.n} | {r.accuracy:.0%} | "
+                     f"{r.ece:.3f} | {r.mean_confidence:.2f}")
     return "\n".join(lines)

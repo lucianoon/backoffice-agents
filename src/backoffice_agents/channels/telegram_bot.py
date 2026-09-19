@@ -10,7 +10,6 @@ import time
 
 from ..adapters.telegram import Button
 from ..calibration import calibration_report, format_report
-from ..decisions import CATEGORIES
 from ..runner import Runner
 
 Reply = tuple[str, list[Button] | None]
@@ -57,11 +56,12 @@ def handle_callback(runner: Runner, data: str, who: str) -> Reply:
         if sub == "ok":
             return _label_category(runner, item_id, None, who), None
         if sub == "fix":
-            buttons = [Button(text=cat, callback_data=f"lbl:set:{item_id}:{cat}") for cat in CATEGORIES]
+            buttons = [Button(text=cat, callback_data=f"lbl:set:{item_id}:{cat}")
+                       for cat in runner.tenant.categories]
             return f"Qual é a categoria correta de {item_id}?", buttons
         if sub == "set":
             item_id, _, category = item_id.rpartition(":")
-            if category in CATEGORIES:
+            if category in runner.tenant.categories:
                 return _label_category(runner, item_id, category, who), None
     return "botão desconhecido", None
 

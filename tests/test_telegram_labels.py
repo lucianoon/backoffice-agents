@@ -40,7 +40,7 @@ def test_fix_button_offers_categories_then_records_correction(make_runner):
     assert decision["human_label"] == "cancelamento"
 
     report = handle_text(runner, "/calibracao", "telegram:1")
-    assert "category | fake-jev | 1 | 0%" in report
+    assert "category | fake-jev | default@1 | 1 | 0%" in report
 
 
 def test_unknown_or_invalid_callbacks_are_safe(make_runner):

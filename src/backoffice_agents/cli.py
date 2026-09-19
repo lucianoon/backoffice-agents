@@ -122,16 +122,21 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
                 emails: list[str] = typer.Option(DEFAULT_EMAILS, help="arquivos JSON de e-mails"),
                 mode: str = typer.Option("configured", help="configured | real | emulated | both"),
                 suggest_thresholds: bool = typer.Option(False, help="sugere limiares por categoria"),
-                target_precision: float = typer.Option(0.95, help="precisão alvo dos limiares")) -> None:
-    """Roda a triagem em sombra contra rótulos humanos e imprime acurácia, ECE e latência."""
+                target_precision: float = typer.Option(0.95, help="precisão alvo dos limiares"),
+                stage: str = typer.Option("triage", help="triage | gate | verify | all"),
+                gate_labels: str = typer.Option("data/samples/gate_labeled.jsonl"),
+                verify_labels: str = typer.Option("data/samples/verify_labeled.jsonl")) -> None:
+    """Avaliação em sombra contra rótulos humanos: triagem, gate e verificação."""
     load_dotenv()
-    from .eval_shadow import load_dataset, run_shadow
+    from .eval_shadow import load_dataset, load_jsonl, run_gate_shadow, run_shadow, run_verify_shadow
     from .eval_shadow import suggest_thresholds as _suggest
     from .jev.client import RealJevClient
     from .jev.emulated import EmulatedJevClient
     from .llm import build_llm
+    from .tenant import load_tenant
 
     settings = get_settings()
+    tenant = load_tenant(settings.tenant_file)
     dataset = load_dataset(emails, labels)
     clients = []
     if mode in {"real", "both"} or (mode == "configured" and settings.jev_mode == "real"):
@@ -141,8 +146,15 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
         clients.append((f"emulado:{settings.llm_model}", EmulatedJevClient(build_llm(settings))))
 
     for label_, client in clients:
-        result = run_shadow(client, dataset, label_, anonymize=settings.jev_anonymize)
-        rprint(f"\n[bold]{label_}[/bold]  n={result.n}")
+        if stage in {"gate", "all"}:
+            _print_stage(run_gate_shadow(client, load_jsonl(gate_labels), settings.jev_anonymize), label_)
+        if stage in {"verify", "all"}:
+            _print_stage(run_verify_shadow(client, load_jsonl(verify_labels), settings.jev_anonymize, tenant),
+                         label_)
+        if stage not in {"triage", "all"}:
+            continue
+        result = run_shadow(client, dataset, label_, anonymize=settings.jev_anonymize, tenant=tenant)
+        rprint(f"\n[bold]{label_}[/bold]  triagem n={result.n}")
         rprint(f"  categoria: {result.category_accuracy:.0%}  ECE={result.ece:.3f}")
         rprint(f"  urgência (±1): {result.urgency_accuracy:.0%}")
         rprint(f"  precisa humano: {result.needs_human_accuracy:.0%}")
@@ -161,6 +173,23 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
                 rprint(f"  {category}: {threshold}")
             usable = {k: v for k, v in suggested.items() if v is not None}
             rprint("\nPara o .env:\nCONFIDENCE_AUTO_BY_CATEGORY=" + json.dumps(usable, ensure_ascii=False))
+
+
+def _print_stage(result, label_: str) -> None:
+    rprint(f"\n[bold]{label_}[/bold]  {result.stage} n={result.n}  "
+           f"latência média {result.mean_latency_ms:.0f} ms")
+    for key, m in result.metrics.items():
+        if "accuracy" in m:
+            rprint(f"  {key}: acurácia {m['accuracy']:.0%}  ECE={m['ece']:.3f}")
+        else:
+            rprint(f"  {key}: dentro de ±1 em {m['within_one']:.0%}")
+    columns = [k for k in result.rows[0] if k != "id"] if result.rows else []
+    table = Table("id", *columns)
+    for row in result.rows:
+        wrong = any(k.endswith("_label") and ((row[k[:-6]] >= 0.5) != row[k]) for k in columns
+                    if isinstance(row[k], bool))
+        table.add_row(row["id"], *(str(row[k]) for k in columns), style="red" if wrong else "")
+    rprint(table)
 
 
 labels_app = typer.Typer(help="Rotulagem por dois anotadores (ver docs/TAXONOMIA.md)")

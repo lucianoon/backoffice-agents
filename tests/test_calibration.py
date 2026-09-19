@@ -19,6 +19,7 @@ def test_report_groups_by_question_and_model():
         _dec("needs_human", "noul", {"noul": 0.7}, "talvez"),      # rótulo inválido: ignorado
     ]
     rows = {(r.question_id, r.model): r for r in calibration_report(decisions)}
+    assert all(r.version == "" for r in calibration_report(decisions))
     assert rows[("category", "jev")].n == 2 and rows[("category", "jev")].accuracy == 0.5
     assert rows[("category", "emulado")].n == 1 and rows[("category", "emulado")].accuracy == 1.0
     assert rows[("needs_human", "jev")].n == 2 and rows[("needs_human", "jev")].accuracy == 0.5

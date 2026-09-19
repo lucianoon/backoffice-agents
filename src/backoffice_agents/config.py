@@ -74,6 +74,12 @@ class Settings(BaseSettings):
     # Threads: e-mails do mesmo remetente com o mesmo assunto normalizado dentro deste prazo
     thread_window_days: int = 14
 
+    # Orçamento de tokens do estado enviado ao Jev (limite da API: ~32k para estado + maior pergunta)
+    jev_state_budget_tokens: int = 24000
+
+    # Configuração por cliente: taxonomia, níveis, prompt, assinatura (tenants/*.toml)
+    tenant_file: str = "tenants/default.toml"
+
     # Persistência e fila. Postgres: postgresql+psycopg://user:pass@host:5432/backoffice
     db_url: str = "sqlite:///data/backoffice.db"
     samples_path: str = "data/samples/emails.json"

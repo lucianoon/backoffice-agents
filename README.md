@@ -46,6 +46,21 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
   do item, ao lado do corpo do e-mail, e passam pela mesma pseudonimização. Anexos acima de 5 MB
   são registrados sem conteúdo.
 
+### Orçamento de tokens, configuração por cliente e avaliação das três decisões
+
+- **Orçamento de tokens** (`JEV_STATE_BUDGET_TOKENS`, padrão 24 mil): antes de qualquer chamada ao
+  Jev, o estado é encolhido em passos previsíveis, do menos para o mais importante (histórico,
+  anexos, resultados de ferramentas, corpo do e-mail), até caber. O que foi cortado fica nas notas
+  do item. Sem isso, uma thread longa estourava o limite de 32 mil tokens da API.
+- **Tenant** (`TENANT_FILE`, padrão `tenants/default.toml`): taxonomia, níveis de urgência e
+  qualidade, prompt do agente, nome da empresa e assinatura. A versão do tenant é gravada em cada
+  decisão e chamada de modelo, e o relatório de calibração separa por versão, então uma mudança de
+  prompt ou de taxonomia nunca se mistura com a anterior.
+- **Gate e verificação em sombra**: `eval-shadow --stage gate` usa `gate_labeled.jsonl` (chamadas
+  de ferramenta com rótulos de adequada e argumentos completos); `--stage verify` usa
+  `verify_labeled.jsonl` (rascunhos com rótulos de resolve, afirmações sem base e qualidade).
+  `--stage all` roda as três decisões. Os conjuntos são sintéticos, com positivos e negativos.
+
 ### Rotulagem, calibração e limiares
 
 - **Taxonomia** em `docs/TAXONOMIA.md`: a categoria é a ação operacional pedida; tom e ameaça vão
@@ -115,6 +130,7 @@ uv run backoffice demo      # ponta a ponta com os 6 e-mails de exemplo e mocks
 uv run backoffice items     # lista os itens e o status final
 uv run backoffice show email:em-001
 uv run backoffice eval-shadow --mode emulated --suggest-thresholds   # triagem x rótulos: acurácia, ECE, limiares
+uv run backoffice eval-shadow --mode emulated --stage all            # triagem + gate + verificação
 uv run backoffice calibration                   # decisões com rótulo humano, por pergunta e modelo
 uv run backoffice costs                         # custo e latência por modelo, "e se" do Jev real
 uv run backoffice labels export --out data/labels/lote1.jsonl        # lote para dois anotadores
@@ -160,6 +176,8 @@ src/backoffice_agents/
   costs.py         custo e latência por modelo, "e se" do Jev real
   tracing.py       LangSmith / Langfuse por item, spans do Jev
   contracts.py     suíte de contrato dos adapters (mocks e reais)
+  budget.py        orçamento de tokens do estado enviado ao Jev
+  tenant.py        configuração por cliente (tenants/*.toml)
   threads.py       ligação de e-mails à conversa e histórico para o agente
   knowledge.py     base de conhecimento com o Jev pontuando trechos
   attachments.py   texto de PDF, texto e imagens
