@@ -31,6 +31,23 @@ e-mail ──> triagem (Jev) ──> agente LLM + ferramentas ──> verificaç
 Toda resposta do Jev (probabilidade, confiança, latência, se é calibrada) fica na tabela `decisions`
 com espaço para o rótulo humano, que é o que permite medir calibração ao longo do piloto.
 
+### Rotulagem, calibração e limiares
+
+- **Taxonomia** em `docs/TAXONOMIA.md`: a categoria é a ação operacional pedida; tom e ameaça vão
+  para `needs_human` e `urgency`. Guia para rotuladores com regras de desempate.
+- **Dois anotadores**: `backoffice labels export` gera o lote; `labels agreement` mede acordo e
+  kappa de Cohen por campo; `labels merge` consolida onde concordam e separa conflitos para
+  adjudicação. Os 30 e-mails de `emails_eval.json` são sintéticos, servem para exercitar as
+  ferramentas, não para tirar conclusões.
+- **Rótulo pelo Telegram**: toda notificação final (respondido, escalado, descartado) traz os
+  botões "Categoria ok" e "Corrigir categoria". O rótulo vai para a tabela `decisions`;
+  `/calibracao` no bot ou `backoffice calibration` mostram acurácia e ECE por pergunta e por modelo,
+  separando Jev real de emulador.
+- **Limiares por categoria**: `CONFIDENCE_AUTO_BY_CATEGORY` e `CONFIDENCE_REVIEW_BY_CATEGORY`
+  (JSON no `.env`) sobrescrevem os globais. `eval-shadow --suggest-thresholds` calcula, por
+  categoria, o menor limiar com precisão acima do alvo e imprime a linha pronta para o `.env`;
+  `None` significa manter a categoria em revisão humana até haver mais dados.
+
 ### Proteções
 
 - **Pseudonimização** (`JEV_ANONYMIZE`): antes de sair para o Jev, e-mails, CPF, CNPJ, cartões,
@@ -51,12 +68,14 @@ Requer Python 3.12 e [uv](https://docs.astral.sh/uv/).
 ```bash
 cp .env.example .env        # preencha LLM_* (ou exporte OPENAI_API_KEY)
 uv sync --python 3.12
-uv run pytest               # 31 testes, tudo com mocks e LLM roteirizado
+uv run pytest               # 42 testes, tudo com mocks e LLM roteirizado
 
 uv run backoffice demo      # ponta a ponta com os 6 e-mails de exemplo e mocks
 uv run backoffice items     # lista os itens e o status final
 uv run backoffice show email:em-001
-uv run backoffice eval-shadow --mode emulated   # triagem x rótulos humanos: acurácia, ECE, latência
+uv run backoffice eval-shadow --mode emulated --suggest-thresholds   # triagem x rótulos: acurácia, ECE, limiares
+uv run backoffice calibration                   # decisões com rótulo humano, por pergunta e modelo
+uv run backoffice labels export --out data/labels/lote1.jsonl        # lote para dois anotadores
 ```
 
 Operação contínua:
@@ -86,6 +105,8 @@ src/backoffice_agents/
   jev/             modelos Noul/Choice/Score, cliente HTTP real, emulador
   policy.py        faixas de confiança, níveis de risco, decisão do gate
   privacy.py       pseudonimização do estado enviado ao Jev
+  labeling.py      lote para anotadores, kappa de Cohen, consolidação
+  calibration.py   acurácia e ECE das decisões com rótulo humano
   decisions.py     as perguntas feitas ao Jev em cada etapa
   tools.py         ferramentas do agente com nível de risco declarado
   agent_loop.py    loop de tool calling com gate e parada para aprovação

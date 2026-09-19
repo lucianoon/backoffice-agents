@@ -80,6 +80,12 @@ class Nodes:
         self._log(state["item_id"], stage, response)
         return response, note
 
+    @staticmethod
+    def _label_buttons(item_id: str) -> list[Button]:
+        """Botões de rótulo humano da categoria: alimentam a medição de calibração."""
+        return [Button(text="👍 Categoria ok", callback_data=f"lbl:ok:{item_id}"),
+                Button(text="✏️ Corrigir categoria", callback_data=f"lbl:fix:{item_id}")]
+
     def _registry(self, state: AgentState) -> ToolRegistry:
         context = ToolContext(customer_email=state["email"]["from_addr"],
                               escalation_reason=state.get("escalation_reason"),
@@ -157,12 +163,12 @@ class Nodes:
         if fallback_note:
             notes.insert(0, fallback_note)
 
-        if category.choice == "spam_irrelevante" and category.confidence >= self.settings.confidence_auto:
+        tier = tier_for(category.confidence, self.settings, category.choice)
+        if category.choice == "spam_irrelevante" and tier == Tier.AUTO:
             return {"triage": triage, "tier": Tier.ESCALATE, "status": "discarded", "notes": notes}
         if needs_human >= self.settings.confidence_auto:
             return {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated", "notes": notes,
                     "escalation_reason": "triagem: caso exige humano"}
-        tier = tier_for(category.confidence, self.settings)
         if tier == Tier.ESCALATE:
             return {"triage": triage, "tier": tier, "status": "escalated", "notes": notes,
                     "escalation_reason": "triagem: confiança baixa na categoria"}
@@ -305,22 +311,26 @@ class Nodes:
         self.store.set_item_state(state["item_id"], "sent", {**dict(state), **update})
         self.adapters.telegram.send_message(
             f"✅ Respondido — item {state['item_id']} | {email_dict.get('subject')} | "
-            f"{state.get('triage', {}).get('category')} | tier {state.get('tier')}")
+            f"{state.get('triage', {}).get('category')} | tier {state.get('tier')}",
+            self._label_buttons(state["item_id"]))
         return update
 
     def escalate(self, state: AgentState) -> dict[str, Any]:
         email = state["email"]
         reason = state.get("escalation_reason") or "revisão humana"
+        category = state.get("triage", {}).get("category")
         self.adapters.telegram.send_message(
             f"🙋 Escalado para humano — item {state['item_id']}\n"
             f"Cliente: {email.get('from_name')} <{email.get('from_addr')}>\n"
-            f"Assunto: {email.get('subject')}\nMotivo: {reason}"
-            + (f"\n\n--- Último rascunho ---\n{state['draft_reply']}" if state.get("draft_reply") else ""))
+            f"Assunto: {email.get('subject')}\nCategoria: {category or 'sem triagem'}\nMotivo: {reason}"
+            + (f"\n\n--- Último rascunho ---\n{state['draft_reply']}" if state.get("draft_reply") else ""),
+            self._label_buttons(state["item_id"]) if category else None)
         return {"status": "escalated", "approval": None,
                 "notes": state.get("notes", []) + [f"escalado: {reason}"]}
 
     def finalize(self, state: AgentState) -> dict[str, Any]:
         if state.get("status") == "discarded":
             self.adapters.telegram.send_message(
-                f"🗑️ Descartado como spam — item {state['item_id']} | {state['email'].get('subject')}")
+                f"🗑️ Descartado como spam — item {state['item_id']} | {state['email'].get('subject')}",
+                self._label_buttons(state["item_id"]))
         return {}

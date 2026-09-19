@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # Política de confiança
     confidence_auto: float = 0.85
     confidence_review: float = 0.55
+    # Sobrescrevem os globais por categoria de triagem. No .env, JSON:
+    # CONFIDENCE_AUTO_BY_CATEGORY={"cancelamento": 0.95, "spam_irrelevante": 0.9}
+    confidence_auto_by_category: dict[str, float] = {}
+    confidence_review_by_category: dict[str, float] = {}
     gate_min_confidence: float = 0.70
     verify_min_quality: float = 3.5
     verify_min_resolves: float = 0.70

@@ -10,15 +10,19 @@ from typing import Any
 
 from .jev import ChoiceQuestion, NoulQuestion, Question, ScoreQuestion
 
+# Categoria = a AÇÃO OPERACIONAL que o cliente pede. Tom, raiva ou ameaça legal não mudam a
+# categoria: vão para `needs_human` e `urgency`. Ver docs/TAXONOMIA.md (regras para rotuladores).
 CATEGORIES: dict[str, str] = {
-    "status_pedido": "customer asks where an order is, tracking or delivery date",
-    "financeiro_cobranca": "invoices, boleto, payment, refund of an amount already charged",
-    "comercial_vendas": "quote, price, discount, availability for a possible purchase",
-    "cancelamento": "customer wants to cancel an order or contract",
-    "suporte_tecnico": "product defect, damage, warranty, exchange",
-    "reclamacao": "complaint about service, threat of Procon/legal action, repeated contact",
-    "spam_irrelevante": "marketing, phishing or unrelated to the company",
-    "outro": "none of the above",
+    "status_pedido": "where is my order: tracking code, delivery date, delay of an order already placed",
+    "financeiro_cobranca": "boleto or invoice copy, payment not recognized, refund of an amount charged, "
+                           "tax document (nota fiscal)",
+    "comercial_vendas": "quote, price, discount, availability or lead time for a purchase not yet placed",
+    "cancelamento": "cancel an order, subscription or contract that is not yet delivered/finished",
+    "suporte_tecnico": "product defective, damaged or wrong item; warranty, exchange, return, how to use",
+    "reclamacao_atendimento": "complaint about the service itself (no reply, delays, rude treatment, "
+                              "wants a manager) with NO other concrete operational request",
+    "spam_irrelevante": "marketing, phishing, newsletters or unrelated to the company",
+    "outro": "a legitimate request that fits none of the above",
 }
 
 URGENCY_LEVELS = [

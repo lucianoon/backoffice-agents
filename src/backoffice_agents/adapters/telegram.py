@@ -62,7 +62,8 @@ class BotApiTelegramAdapter:
     def send_message(self, text: str, buttons: list[Button] | None = None) -> str:
         payload: dict[str, Any] = {"chat_id": self._chat_id, "text": text}
         if buttons:
-            payload["reply_markup"] = {"inline_keyboard": [[b.model_dump() for b in buttons]]}
+            rows = [[b.model_dump() for b in buttons[i:i + 2]] for i in range(0, len(buttons), 2)]
+            payload["reply_markup"] = {"inline_keyboard": rows}
         response = self._http.post(f"{self._base}/sendMessage", json=payload)
         response.raise_for_status()
         return str(response.json()["result"]["message_id"])

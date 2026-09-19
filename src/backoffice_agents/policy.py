@@ -31,10 +31,13 @@ class GateOutcome(StrEnum):
     REJECT = "reject"      # devolve ao LLM com o motivo
 
 
-def tier_for(confidence: float, settings: Settings) -> Tier:
-    if confidence >= settings.confidence_auto:
+def tier_for(confidence: float, settings: Settings, category: str | None = None) -> Tier:
+    """Faixa de confiança; limiares por categoria (quando definidos) vencem os globais."""
+    auto = settings.confidence_auto_by_category.get(category or "", settings.confidence_auto)
+    review = settings.confidence_review_by_category.get(category or "", settings.confidence_review)
+    if confidence >= auto:
         return Tier.AUTO
-    if confidence >= settings.confidence_review:
+    if confidence >= review:
         return Tier.REVIEW
     return Tier.ESCALATE
 

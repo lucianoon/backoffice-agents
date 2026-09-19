@@ -78,7 +78,7 @@ def test_spam_is_discarded_without_calling_llm(make_runner):
 
 
 def test_needs_human_escalates_before_acting(make_runner):
-    runner = make_runner([], jev_overrides={"category": ("reclamacao", 0.9), "needs_human": 0.93})
+    runner = make_runner([], jev_overrides={"category": ("reclamacao_atendimento", 0.9), "needs_human": 0.93})
     runner.ingest_emails()
     final = runner.process_item(ROBERTO)
     assert final["status"] == "escalated"

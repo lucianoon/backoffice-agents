@@ -46,4 +46,5 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ISC"]
 # capturas amplas são deliberadas nas fronteiras (Jev, ferramentas, retomada): fail-closed
-ignore = ["BLE001"]
+# B008: `typer.Option(...)` em defaults é o idioma do typer
+ignore = ["BLE001", "B008"]

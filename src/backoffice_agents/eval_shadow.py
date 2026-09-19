@@ -1,6 +1,7 @@
 """Avaliação em sombra da triagem: Jev (real e/ou emulado) contra rótulos humanos.
 
-Mede acurácia por pergunta, calibração (ECE em 10 faixas) da categoria e latência.
+Mede acurácia por pergunta, calibração (ECE em 10 faixas) da categoria, latência e sugere
+limiares de confiança por categoria para a política de roteamento.
 """
 
 from __future__ import annotations
@@ -66,8 +67,17 @@ def expected_calibration_error(pairs: list[tuple[float, bool]], bins: int = 10) 
     return ece
 
 
-def load_dataset(samples_path: str, labels_path: str) -> list[dict[str, Any]]:
-    emails = {e["id"]: e for e in json.loads(Path(samples_path).read_text(encoding="utf-8"))}
+def load_emails(paths: list[str]) -> list[dict[str, Any]]:
+    emails: list[dict[str, Any]] = []
+    for path in paths:
+        p = Path(path)
+        if p.exists():
+            emails.extend(json.loads(p.read_text(encoding="utf-8")))
+    return emails
+
+
+def load_dataset(samples_paths: list[str], labels_path: str) -> list[dict[str, Any]]:
+    emails = {e["id"]: e for e in load_emails(samples_paths)}
     dataset = []
     for line in Path(labels_path).read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -108,3 +118,26 @@ def run_shadow(client: JevClient, dataset: list[dict[str, Any]], model_label: st
             "needs_human": round(response.noul("needs_human"), 2), "latency_ms": round(response.latency_ms),
         })
     return result
+
+
+def suggest_thresholds(rows: list[dict[str, Any]], target_precision: float = 0.95,
+                       min_support: int = 3) -> dict[str, float | None]:
+    """Para cada categoria prevista, o menor limiar de confiança com precisão >= alvo.
+
+    None significa que nenhum limiar atinge o alvo com suporte mínimo: essa categoria deve
+    ficar em revisão humana até haver mais dados.
+    """
+    by_category: dict[str, list[tuple[float, bool]]] = {}
+    for row in rows:
+        by_category.setdefault(row["predicted"], []).append(
+            (float(row["confidence"]), row["predicted"] == row["expected"]))
+    suggestions: dict[str, float | None] = {}
+    for category, pairs in sorted(by_category.items()):
+        chosen: float | None = None
+        for threshold in sorted({c for c, _ in pairs}):
+            kept = [ok for c, ok in pairs if c >= threshold]
+            if len(kept) >= min_support and sum(kept) / len(kept) >= target_precision:
+                chosen = threshold
+                break
+        suggestions[category] = chosen
+    return suggestions

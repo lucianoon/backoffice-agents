@@ -1,13 +1,19 @@
-"""Poller do Telegram: recebe aprovações (botões ou comandos) e retoma o item na hora.
+"""Poller do Telegram: aprovações (botões ou comandos), rótulos humanos e relatórios.
 
-Comandos: /pendentes, /status, /aprovar <id>, /rejeitar <id>, /item <id>
+Comandos: /pendentes, /status, /aprovar <id>, /rejeitar <id>, /item <id>, /calibracao
+Botões: approve:<id> | reject:<id> | lbl:ok:<item> | lbl:fix:<item> | lbl:set:<item>:<categoria>
 """
 
 from __future__ import annotations
 
 import time
 
+from ..adapters.telegram import Button
+from ..calibration import calibration_report, format_report
+from ..decisions import CATEGORIES
 from ..runner import Runner
+
+Reply = tuple[str, list[Button] | None]
 
 
 def _decide(runner: Runner, approval_id: int, approved: bool, who: str) -> str:
@@ -23,6 +29,41 @@ def _decide(runner: Runner, approval_id: int, approved: bool, who: str) -> str:
         return f"#{approval_id} {'aprovada' if approved else 'rejeitada'}, mas a retomada falhou: {exc}"
     verb = "aprovada" if approved else "rejeitada"
     return f"#{approval_id} {verb} → item {approval['item_id']} agora {final['status']}"
+
+
+def _label_category(runner: Runner, item_id: str, category: str | None) -> str:
+    """Grava o rótulo humano da categoria. `None` = confirma a categoria prevista."""
+    item = runner.store.get_item(item_id)
+    if item is None:
+        return f"item {item_id} não existe"
+    predicted = (item.get("state") or {}).get("triage", {}).get("category")
+    label = category or predicted
+    if not label:
+        return f"item {item_id} não tem triagem para rotular"
+    n = runner.store.set_human_label(item_id, "triage", "category", label)
+    if n == 0:
+        return f"item {item_id} não tem decisão de triagem registrada"
+    verdict = "confirmada" if label == predicted else f"corrigida ({predicted} → {label})"
+    return f"📝 Categoria {verdict} para {item_id}. Obrigado!"
+
+
+def handle_callback(runner: Runner, data: str, who: str) -> Reply:
+    parts = data.split(":")
+    action = parts[0]
+    if action in {"approve", "reject"} and len(parts) == 2 and parts[1].isdigit():
+        return _decide(runner, int(parts[1]), action == "approve", who), None
+    if action == "lbl" and len(parts) >= 3:
+        sub, item_id = parts[1], ":".join(parts[2:])
+        if sub == "ok":
+            return _label_category(runner, item_id, None), None
+        if sub == "fix":
+            buttons = [Button(text=cat, callback_data=f"lbl:set:{item_id}:{cat}") for cat in CATEGORIES]
+            return f"Qual é a categoria correta de {item_id}?", buttons
+        if sub == "set":
+            item_id, _, category = item_id.rpartition(":")
+            if category in CATEGORIES:
+                return _label_category(runner, item_id, category), None
+    return "botão desconhecido", None
 
 
 def handle_text(runner: Runner, text: str, who: str) -> str:
@@ -49,24 +90,25 @@ def handle_text(runner: Runner, text: str, who: str) -> str:
             return "item não encontrado"
         notes = "\n".join(item["state"].get("notes", [])) if item["state"] else ""
         return f"{item['id']} — {item['status']}\n{item['payload'].get('subject')}\n{notes}"
-    return "Comandos: /pendentes, /status, /aprovar <id>, /rejeitar <id>, /item <id>"
+    if cmd == "/calibracao":
+        return "📊 Calibração (decisões com rótulo humano)\n" + format_report(
+            calibration_report(runner.store.list_decisions()))
+    return ("Comandos: /pendentes, /status, /aprovar <id>, /rejeitar <id>, /item <id>, /calibracao")
 
 
 def poll_forever(runner: Runner, sleep_s: float = 1.0) -> None:
     telegram = runner.adapters.telegram
     offset: int | None = None
-    print("Telegram: aguardando comandos e aprovações (Ctrl+C para sair)")
+    print("Telegram: aguardando comandos, aprovações e rótulos (Ctrl+C para sair)")
     while True:
         updates = telegram.get_updates(offset)
         for update in updates:
             offset = update.update_id + 1
             who = f"telegram:{update.chat_id}"
             if update.callback_data:
-                action, _, raw_id = update.callback_data.partition(":")
-                if action in {"approve", "reject"} and raw_id.isdigit():
-                    reply = _decide(runner, int(raw_id), action == "approve", who)
-                    telegram.answer_callback(update.callback_id, "ok")
-                    telegram.send_message(reply)
+                text, buttons = handle_callback(runner, update.callback_data, who)
+                telegram.answer_callback(update.callback_id, "ok")
+                telegram.send_message(text, buttons)
             elif update.text:
                 reply = handle_text(runner, update.text, who)
                 if reply:

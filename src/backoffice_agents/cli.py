@@ -114,18 +114,25 @@ def approve(approval_id: int, reject: bool = typer.Option(False, help="Rejeita e
     rprint(_decide(_runner(), approval_id, not reject, "cli"))
 
 
+DEFAULT_EMAILS = ["data/samples/emails.json", "data/samples/emails_eval.json"]
+
+
 @app.command("eval-shadow")
 def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
-                mode: str = typer.Option("configured", help="configured | real | emulated | both")) -> None:
+                emails: list[str] = typer.Option(DEFAULT_EMAILS, help="arquivos JSON de e-mails"),
+                mode: str = typer.Option("configured", help="configured | real | emulated | both"),
+                suggest_thresholds: bool = typer.Option(False, help="sugere limiares por categoria"),
+                target_precision: float = typer.Option(0.95, help="precisão alvo dos limiares")) -> None:
     """Roda a triagem em sombra contra rótulos humanos e imprime acurácia, ECE e latência."""
     load_dotenv()
     from .eval_shadow import load_dataset, run_shadow
+    from .eval_shadow import suggest_thresholds as _suggest
     from .jev.client import RealJevClient
     from .jev.emulated import EmulatedJevClient
     from .llm import build_llm
 
     settings = get_settings()
-    dataset = load_dataset(settings.samples_path, labels)
+    dataset = load_dataset(emails, labels)
     clients = []
     if mode in {"real", "both"} or (mode == "configured" and settings.jev_mode == "real"):
         clients.append(("jev-real", RealJevClient(settings.typesafe_api_key or "", settings.jev_model,
@@ -146,6 +153,86 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
             table.add_row(*(str(row[k]) for k in ("id", "expected", "predicted", "confidence", "urgency",
                                                     "needs_human", "latency_ms")), style=style)
         rprint(table)
+        if suggest_thresholds:
+            suggested = _suggest(result.rows, target_precision)
+            rprint(f"\n[bold]Limiares sugeridos[/bold] (precisão >= {target_precision:.0%}; "
+                   "None = manter em revisão humana):")
+            for category, threshold in suggested.items():
+                rprint(f"  {category}: {threshold}")
+            usable = {k: v for k, v in suggested.items() if v is not None}
+            rprint("\nPara o .env:\nCONFIDENCE_AUTO_BY_CATEGORY=" + json.dumps(usable, ensure_ascii=False))
+
+
+labels_app = typer.Typer(help="Rotulagem por dois anotadores (ver docs/TAXONOMIA.md)")
+app.add_typer(labels_app, name="labels")
+
+
+@labels_app.command("export")
+def labels_export(out: str = typer.Option(..., help="JSONL de saída para os anotadores"),
+                  emails: list[str] = typer.Option(DEFAULT_EMAILS),
+                  from_db: bool = typer.Option(False, help="inclui e-mails já ingeridos no banco")) -> None:
+    """Exporta um lote com os campos de rótulo vazios."""
+    from pathlib import Path
+
+    from .eval_shadow import load_emails
+    from .labeling import export_batch
+
+    rows = load_emails(emails)
+    if from_db:
+        runner = _runner()
+        rows += [dict(item["payload"], id=item["id"]) for item in runner.store.list_items()
+                 if item["source"] == "email"]
+    rprint(f"{export_batch(rows, Path(out))} e-mail(s) exportado(s) para {out}")
+
+
+@labels_app.command("agreement")
+def labels_agreement(a: str, b: str) -> None:
+    """Concordância entre dois anotadores: acordo exato, kappa de Cohen e discordâncias."""
+    from pathlib import Path
+
+    from .labeling import agreement, load_labels
+
+    report = agreement(load_labels(Path(a)), load_labels(Path(b)))
+    table = Table("campo", "n", "acordo", "kappa", "±1")
+    for f in report.fields:
+        table.add_row(f.field, str(f.n), f"{f.exact:.0%}", f"{f.kappa:.2f}",
+                      f"{f.within_one:.0%}" if f.within_one is not None else "")
+    rprint(table)
+    for d in report.disagreements:
+        rprint(f"  {d['id']} {d['field']}: A={d['a']} B={d['b']}")
+    if report.only_in_a or report.only_in_b:
+        rprint(f"só em A: {report.only_in_a}  só em B: {report.only_in_b}")
+
+
+@labels_app.command("merge")
+def labels_merge(a: str, b: str, out: str = typer.Option(..., help="JSONL consolidado (formato labeled)"),
+                 conflicts: str = typer.Option("data/labels/conflitos.jsonl")) -> None:
+    """Consolida os rótulos em que os dois concordam; o resto vai para adjudicação."""
+    from pathlib import Path
+
+    from .labeling import load_labels, merge, write_jsonl
+
+    merged, conflicted = merge(load_labels(Path(a)), load_labels(Path(b)))
+    write_jsonl(merged, Path(out))
+    write_jsonl(conflicted, Path(conflicts))
+    rprint(f"{len(merged)} consolidado(s) em {out}; {len(conflicted)} conflito(s) em {conflicts}")
+
+
+@app.command()
+def calibration() -> None:
+    """Calibração das decisões com rótulo humano, por pergunta e por modelo."""
+    from .calibration import calibration_report
+
+    runner = _runner()
+    rows = calibration_report(runner.store.list_decisions())
+    if not rows:
+        rprint("Nenhuma decisão rotulada ainda. Use os botões no Telegram ou `backoffice label`.")
+        return
+    table = Table("pergunta", "modelo", "n", "acurácia", "ECE", "conf. média")
+    for r in rows:
+        table.add_row(r.question_id, r.model, str(r.n), f"{r.accuracy:.0%}", f"{r.ece:.3f}",
+                      f"{r.mean_confidence:.2f}")
+    rprint(table)
 
 
 @app.command()
