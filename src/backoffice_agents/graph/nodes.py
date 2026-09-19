@@ -1,0 +1,279 @@
+"""Nós do grafo. Cada nó recebe o estado serializável e devolve só o que mudou."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import (
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+    messages_from_dict,
+    messages_to_dict,
+)
+
+from .. import decisions
+from ..adapters import Adapters
+from ..adapters.email import EmailMessage
+from ..adapters.telegram import Button, MockTelegramAdapter
+from ..agent_loop import execute_tool, run_agent
+from ..config import Settings
+from ..jev import JevClient, JevResponse
+from ..policy import GateOutcome, RiskLevel, Tier, gate_outcome, tier_for
+from ..storage import Store
+from ..tools import ToolContext, ToolRegistry, build_tools
+from .state import AgentState
+
+SYSTEM_PROMPT = """Você é o assistente de backoffice da empresa. Você recebe um e-mail de cliente já triado
+e deve resolvê-lo usando as ferramentas de CRM e ERP disponíveis.
+
+Regras:
+1. Nunca invente números de pedido, valores, datas, códigos de rastreio ou prazos. Só afirme o que
+   vier das ferramentas. Se um dado não existir, diga isso ao cliente.
+2. Consulte antes de agir: busque o contato no CRM e os dados no ERP antes de responder.
+3. Para cancelar pedido, criar pedido ou criar oportunidade, chame a ferramenta correspondente.
+   Ações sensíveis passam por aprovação humana automaticamente; não peça permissão ao cliente.
+4. Se o caso exigir negociação, envolver ameaça legal, dado inconsistente ou você não tiver como
+   resolver com segurança, chame escalate_to_human com o motivo.
+5. Ao terminar, registre um resumo com crm_log_interaction e então responda APENAS com o texto
+   final do e-mail ao cliente, em português, cordial e objetivo, assinado por "Equipe de Atendimento".
+   Sem preâmbulo, sem explicar o que você fez internamente.
+"""
+
+
+class Nodes:
+    def __init__(self, settings: Settings, llm: BaseChatModel, jev: JevClient, adapters: Adapters,
+                 store: Store) -> None:
+        self.settings = settings
+        self.llm = llm
+        self.jev = jev
+        self.adapters = adapters
+        self.store = store
+
+    # ---------- helpers ----------
+    def _log(self, item_id: str, stage: str, response: JevResponse) -> None:
+        for key, answer in response.answers.items():
+            confidence = answer.confidence
+            self.store.log_decision(item_id, stage, key, answer.type, answer.model_dump(),
+                                    confidence, response.calibrated, response.model, response.latency_ms)
+
+    def _registry(self, state: AgentState) -> ToolRegistry:
+        context = ToolContext(customer_email=state["email"]["from_addr"],
+                              escalation_reason=state.get("escalation_reason"),
+                              forwarded=list(state.get("forwarded", [])))
+        return build_tools(self.adapters, context)
+
+    @staticmethod
+    def _facts(messages: list[BaseMessage]) -> list[dict[str, Any]]:
+        facts = []
+        for m in messages:
+            if isinstance(m, ToolMessage):
+                try:
+                    result = json.loads(m.content)
+                except (json.JSONDecodeError, TypeError):
+                    result = m.content
+                facts.append({"tool": m.name, "result": result})
+        return facts
+
+    def _initial_messages(self, state: AgentState) -> list[BaseMessage]:
+        email = state["email"]
+        triage = state.get("triage", {})
+        return [
+            SystemMessage(content=SYSTEM_PROMPT),
+            HumanMessage(content=(
+                f"TRIAGEM: categoria={triage.get('category')} urgência={triage.get('urgency')}/5\n\n"
+                f"E-MAIL RECEBIDO\nDe: {email.get('from_name')} <{email.get('from_addr')}>\n"
+                f"Assunto: {email.get('subject')}\nData: {email.get('date')}\n\n{email.get('body')}")),
+        ]
+
+    def _gate(self, state: AgentState, registry: ToolRegistry, messages: list[BaseMessage]):
+        def gate(call: dict[str, Any]) -> tuple[GateOutcome, str]:
+            risk = registry.risk.get(call["name"], RiskLevel.HIGH)
+            appropriate = args_complete = None
+            if risk == RiskLevel.MEDIUM:
+                try:
+                    response = self.jev.ask(
+                        decisions.gate_state(state["email"], state.get("triage", {}), call["name"],
+                                             call["args"], self._facts(messages)),
+                        decisions.gate_questions(call["name"]))
+                    self._log(state["item_id"], f"gate:{call['name']}", response)
+                    appropriate = response.noul("appropriate")
+                    args_complete = response.noul("args_complete")
+                except Exception as exc:  # Jev indisponível: fail-closed para aprovação humana
+                    return GateOutcome.APPROVE, f"gate indisponível ({exc.__class__.__name__})"
+            return gate_outcome(risk, appropriate, args_complete, self.settings)
+        return gate
+
+    # ---------- nós ----------
+    def triage(self, state: AgentState) -> dict[str, Any]:
+        email = state["email"]
+        contact = self.adapters.crm.find_contact_by_email(email["from_addr"])
+        response = self.jev.ask(decisions.triage_state(email, contact.model_dump() if contact else None),
+                                decisions.triage_questions())
+        self._log(state["item_id"], "triage", response)
+
+        category = response.choice("category")
+        urgency = response.score("urgency")
+        needs_human = response.noul("needs_human")
+        sensitive = response.noul("sensitive")
+        triage = {
+            "category": category.choice,
+            "category_confidence": category.confidence,
+            "urgency": round(urgency.score, 2),
+            "needs_human": round(needs_human, 3),
+            "sensitive": round(sensitive, 3),
+            "calibrated": response.calibrated,
+        }
+        notes = [f"triagem: {category.choice} (conf {category.confidence:.2f}), "
+                 f"urgência {urgency.score:.1f}, humano {needs_human:.2f}"]
+
+        if category.choice == "spam_irrelevante" and category.confidence >= self.settings.confidence_auto:
+            return {"triage": triage, "tier": Tier.ESCALATE, "status": "discarded", "notes": notes}
+        if needs_human >= self.settings.confidence_auto:
+            return {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated", "notes": notes,
+                    "escalation_reason": "triagem: caso exige humano"}
+        tier = tier_for(category.confidence, self.settings)
+        if tier == Tier.ESCALATE:
+            return {"triage": triage, "tier": tier, "status": "escalated", "notes": notes,
+                    "escalation_reason": "triagem: confiança baixa na categoria"}
+        return {"triage": triage, "tier": tier, "status": "triaged", "notes": notes,
+                "messages": messages_to_dict(self._initial_messages(state))}
+
+    def act(self, state: AgentState) -> dict[str, Any]:
+        registry = self._registry(state)
+        messages = messages_from_dict(state["messages"])
+        turn = run_agent(self.llm, registry, messages, self._gate(state, registry, messages),
+                         self.settings.max_tool_iterations)
+        update: dict[str, Any] = {
+            "messages": messages_to_dict(turn.messages),
+            "escalation_reason": registry.context.escalation_reason,
+            "forwarded": registry.context.forwarded,
+            "pending_action": None,
+        }
+        if turn.pending_call:
+            update["pending_action"] = {"call": turn.pending_call, "reason": turn.pending_reason}
+            update["status"] = "awaiting_approval"
+        elif turn.escalated or registry.context.escalation_reason:
+            update["status"] = "escalated"
+            update["escalation_reason"] = registry.context.escalation_reason or "limite de iterações"
+        else:
+            update["draft_reply"] = turn.final_text or ""
+            update["status"] = "drafted"
+        return update
+
+    def resume_tool(self, state: AgentState) -> dict[str, Any]:
+        """Aplica a decisão humana sobre a tool call pendente e devolve o controle ao agente."""
+        approval = state["approval"] or {}
+        call = (state.get("pending_action") or {}).get("call")
+        messages = messages_from_dict(state["messages"])
+        if call:
+            if approval.get("approved"):
+                registry = self._registry(state)
+                messages.append(execute_tool(registry, call))
+                note = f"operador aprovou {call['name']}"
+            else:
+                messages.append(ToolMessage(
+                    content=json.dumps({"rejected": True, "reason": "operador humano rejeitou esta ação"},
+                                       ensure_ascii=False),
+                    tool_call_id=call["id"], name=call["name"]))
+                note = f"operador rejeitou {call['name']}"
+        else:
+            note = "retomada sem ação pendente"
+        return {"messages": messages_to_dict(messages), "pending_action": None, "approval": None,
+                "notes": state.get("notes", []) + [note]}
+
+    def verify(self, state: AgentState) -> dict[str, Any]:
+        messages = messages_from_dict(state["messages"])
+        draft = state.get("draft_reply", "")
+        response = self.jev.ask(decisions.verify_state(state["email"], draft, self._facts(messages)),
+                                decisions.verify_questions())
+        self._log(state["item_id"], "verify", response)
+        resolves = response.noul("resolves")
+        quality = response.score("quality")
+        unsupported = response.noul("unsupported_claims")
+        passed = (resolves >= self.settings.verify_min_resolves
+                  and quality.score >= self.settings.verify_min_quality and unsupported < 0.5)
+        verification = {"resolves": round(resolves, 3), "quality": round(quality.score, 2),
+                        "unsupported_claims": round(unsupported, 3), "passed": passed,
+                        "calibrated": response.calibrated}
+        notes = state.get("notes", []) + [
+            f"verificação: resolve {resolves:.2f}, qualidade {quality.score:.1f}, "
+            f"afirmações sem base {unsupported:.2f} -> {'ok' if passed else 'reprovada'}"]
+        update: dict[str, Any] = {"verification": verification, "notes": notes}
+        if passed:
+            update["status"] = "verified"
+            return update
+        if state.get("regenerations", 0) < self.settings.max_regenerations:
+            feedback = ("A resposta anterior foi reprovada na verificação. "
+                        f"Ela resolve o pedido? p={resolves:.2f}. Qualidade {quality.score:.1f}/5. "
+                        f"Contém afirmações sem base nos dados? p={unsupported:.2f}. "
+                        "Reescreva usando somente os dados obtidos pelas ferramentas.")
+            messages.append(HumanMessage(content=feedback))
+            update.update({"messages": messages_to_dict(messages), "draft_reply": "",
+                           "regenerations": state.get("regenerations", 0) + 1, "status": "regenerate"})
+            return update
+        update.update({"status": "escalated",
+                       "escalation_reason": "resposta reprovada na verificação após regenerar"})
+        return update
+
+    def request_approval(self, state: AgentState) -> dict[str, Any]:
+        email = state["email"]
+        if state.get("pending_action"):
+            call = state["pending_action"]["call"]
+            kind = "tool"
+            action = {"tool": call["name"], "args": call["args"], "reason": state["pending_action"]["reason"]}
+            text = (f"🔐 Aprovação necessária — item {state['item_id']}\n"
+                    f"Cliente: {email.get('from_name')} <{email.get('from_addr')}>\n"
+                    f"Assunto: {email.get('subject')}\n\nAção: {call['name']}\n"
+                    f"Argumentos: {json.dumps(call['args'], ensure_ascii=False)}\n"
+                    f"Motivo: {state['pending_action']['reason']}")
+        else:
+            kind = "send"
+            action = {"draft_reply": state.get("draft_reply", "")}
+            text = (f"✉️ Revisar resposta — item {state['item_id']} (confiança média)\n"
+                    f"Cliente: {email.get('from_name')} <{email.get('from_addr')}>\n"
+                    f"Assunto: {email.get('subject')}\n\n--- Rascunho ---\n{state.get('draft_reply', '')}")
+
+        approval_id = self.store.create_approval(state["item_id"], kind, action, None)
+        buttons = [Button(text="✅ Aprovar", callback_data=f"approve:{approval_id}"),
+                   Button(text="❌ Rejeitar", callback_data=f"reject:{approval_id}")]
+        message_id = self.adapters.telegram.send_message(text, buttons)
+        self.store.set_approval_message(approval_id, message_id)
+
+        telegram = self.adapters.telegram
+        if isinstance(telegram, MockTelegramAdapter) and telegram.auto_approve:
+            self.store.decide_approval(approval_id, True, "mock-auto")
+        return {"status": "awaiting_approval",
+                "notes": state.get("notes", []) + [f"aprovação #{approval_id} ({kind}) solicitada"]}
+
+    def send(self, state: AgentState) -> dict[str, Any]:
+        email_dict = state["email"]
+        original = EmailMessage(**email_dict)
+        self.adapters.email.send_reply(original, state.get("draft_reply", ""))
+        for fwd in state.get("forwarded", []):
+            self.adapters.email.forward(original, fwd["to"], fwd["note"])
+        self.adapters.telegram.send_message(
+            f"✅ Respondido — item {state['item_id']} | {email_dict.get('subject')} | "
+            f"{state.get('triage', {}).get('category')} | tier {state.get('tier')}")
+        return {"status": "sent", "approval": None,
+                "notes": state.get("notes", []) + ["e-mail enviado"]}
+
+    def escalate(self, state: AgentState) -> dict[str, Any]:
+        email = state["email"]
+        reason = state.get("escalation_reason") or "revisão humana"
+        self.adapters.telegram.send_message(
+            f"🙋 Escalado para humano — item {state['item_id']}\n"
+            f"Cliente: {email.get('from_name')} <{email.get('from_addr')}>\n"
+            f"Assunto: {email.get('subject')}\nMotivo: {reason}"
+            + (f"\n\n--- Último rascunho ---\n{state['draft_reply']}" if state.get("draft_reply") else ""))
+        return {"status": "escalated", "approval": None,
+                "notes": state.get("notes", []) + [f"escalado: {reason}"]}
+
+    def finalize(self, state: AgentState) -> dict[str, Any]:
+        if state.get("status") == "discarded":
+            self.adapters.telegram.send_message(
+                f"🗑️ Descartado como spam — item {state['item_id']} | {state['email'].get('subject')}")
+        return {}

@@ -1,0 +1,6 @@
+{"id": "em-001", "labels": {"category": "status_pedido", "urgency": 2, "needs_human": false}}
+{"id": "em-002", "labels": {"category": "financeiro_cobranca", "urgency": 3, "needs_human": false}}
+{"id": "em-003", "labels": {"category": "comercial_vendas", "urgency": 2, "needs_human": false}}
+{"id": "em-004", "labels": {"category": "cancelamento", "urgency": 4, "needs_human": true}}
+{"id": "em-005", "labels": {"category": "spam_irrelevante", "urgency": 1, "needs_human": false}}
+{"id": "em-006", "labels": {"category": "reclamacao", "urgency": 5, "needs_human": true}}

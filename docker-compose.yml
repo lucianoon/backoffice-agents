@@ -1,0 +1,13 @@
+services:
+  worker:
+    build: .
+    env_file: .env
+    command: ["worker", "--watch", "--interval", "30"]
+    volumes:
+      - ./data:/app/data
+  telegram:
+    build: .
+    env_file: .env
+    command: ["telegram"]
+    volumes:
+      - ./data:/app/data
