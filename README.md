@@ -151,7 +151,7 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
 
 ## Rodando
 
-Requer Python 3.12 e [uv](https://docs.astral.sh/uv/).
+Requer Python 3.12 ou 3.13 e [uv](https://docs.astral.sh/uv/).
 
 ```bash
 cp .env.example .env        # preencha LLM_* (ou exporte OPENAI_API_KEY)

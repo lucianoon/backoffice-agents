@@ -2,7 +2,7 @@
 name = "backoffice-agents"
 version = "0.1.0"
 description = "Piloto de agentes de backoffice: LLM gera e raciocina, Jev (TypeSafe AI) decide, roteia e verifica"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "langchain>=0.3,<2",
     "langchain-core>=0.3,<2",

@@ -21,6 +21,9 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
     env:
       TEST_DB_URL: postgresql+psycopg://backoffice:backoffice@localhost:5432/backoffice
       PYTHONUTF8: "1"
@@ -28,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: uv sync --extra postgres
       - run: uv run ruff check src tests
@@ -38,4 +41,5 @@ jobs:
       - name: regressao da avaliacao (replay do cassete, sem rede)
         run: >-
           uv run backoffice eval-shadow --mode emulated --stage all
-          --replay data/cassettes/eval.json --min-triage 0.9 --min-gate 0.7 --min-verify 0.7
+          --replay data/cassettes/eval.json --fail-stale
+          --min-triage 0.9 --min-gate 0.7 --min-verify 0.7

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -145,20 +146,35 @@ class Nodes:
                 HumanMessage(content="\n\n".join(parts))]
 
     def _gate(self, state: AgentState, registry: ToolRegistry, messages: list[BaseMessage]):
+        # Consultas idênticas dentro do mesmo passo de ação (o LLM repropõe a mesma chamada
+        # com os mesmos dados) são respondidas do cache: economiza chamadas ao Jev no retry.
+        cache: dict[str, tuple[GateOutcome, str]] = {}
+
         def gate(call: dict[str, Any]) -> tuple[GateOutcome, str]:
             risk = registry.risk.get(call["name"], RiskLevel.HIGH)
             appropriate = args_complete = None
             if risk == RiskLevel.MEDIUM:
+                facts = self._facts(messages)
+                cache_key = hashlib.sha256(json.dumps(
+                    [call["name"], call["args"], facts], ensure_ascii=False, sort_keys=True,
+                    default=str).encode("utf-8")).hexdigest()
+                if cache_key in cache:
+                    log_event("gate_cached", item_id=state["item_id"],
+                                    tool=call["name"], cached=True)
+                    return cache[cache_key]
                 try:
                     response, _ = self._ask(
                         state, f"gate:{call['name']}",
                         decisions.gate_state(state["email"], state.get("triage", {}), call["name"],
-                                             call["args"], self._facts(messages)),
+                                             call["args"], facts),
                         decisions.gate_questions(call["name"]))
                     appropriate = response.noul("appropriate")
                     args_complete = response.noul("args_complete")
                 except Exception as exc:  # Jev indisponível: fail-closed para aprovação humana
                     return GateOutcome.APPROVE, f"gate indisponível ({exc.__class__.__name__})"
+                outcome = gate_outcome(risk, appropriate, args_complete, self.settings)
+                cache[cache_key] = outcome
+                return outcome
             return gate_outcome(risk, appropriate, args_complete, self.settings)
         return gate
 

@@ -145,6 +145,7 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
                 verify_labels: str = typer.Option("data/samples/verify_labeled.jsonl"),
                 record: str = typer.Option(None, help="grava as respostas do LLM neste cassete JSON"),
                 replay: str = typer.Option(None, help="responde só pelo cassete (sem rede nem chave)"),
+                fail_stale: bool = typer.Option(False, help="falha se o cassete tiver entradas não usadas"),
                 min_triage: float = typer.Option(None, help="falha se a acurácia da categoria ficar abaixo"),
                 min_gate: float = typer.Option(None, help="falha se alguma pergunta do gate ficar abaixo"),
                 min_verify: float = typer.Option(None, help="mínimo por pergunta da verificação")
@@ -216,6 +217,17 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
                 rprint(f"  {category}: {threshold}")
             usable = {k: v for k, v in suggested.items() if v is not None}
             rprint("\nPara o .env:\nCONFIDENCE_AUTO_BY_CATEGORY=" + json.dumps(usable, ensure_ascii=False))
+    replay_model = next((c._llm for _, c in clients if isinstance(c, EmulatedJevClient)
+                         and isinstance(c._llm, ReplayChatModel)), None)
+    if replay_model is not None:
+        unused = replay_model.unused_keys
+        rprint(f"\n[cyan]{replay_model.cassette_path}[/cyan]: {replay_model.hits} chamadas "
+               f"atendidas ({len(unused)} de {len(replay_model.entries)} entradas não usadas).")
+        if unused and replay_model.mode == "replay":
+            rprint("[yellow]Aviso: cassete parcialmente stale (prompt, taxonomia ou dataset mudaram); "
+                   "grave de novo com --record.[/yellow]")
+            if fail_stale:
+                failures.append(f"cassete stale: {len(unused)} entradas não usadas")
     if failures:
         rprint("[red]Abaixo do mínimo:[/red] " + "; ".join(failures))
         raise typer.Exit(code=1)

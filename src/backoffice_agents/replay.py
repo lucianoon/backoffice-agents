@@ -37,13 +37,25 @@ class ReplayChatModel(BaseChatModel):
     entries: dict[str, dict[str, Any]] = {}
     hits: int = 0
     misses: int = 0
+    used: set[str] = set()
 
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
         path = Path(self.cassette_path)
         self.entries = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        self.used = set()
         if self.mode == "record" and self.inner is None:
             raise ValueError("modo record exige um LLM interno")
+
+    @property
+    def unused_keys(self) -> list[str]:
+        """Entradas do cassete que nenhuma chamada desta execução consultou.
+
+        Indicativo de prompt/taxonomia/dataset antigo: o cassete ficou parcialmente stale.
+        Chaves que não são hash sha256 (metadados) não contam.
+        """
+        return [k for k in self.entries if len(k) == 64 and all(c in "0123456789abcdef" for c in k)
+                and k not in self.used]
 
     @property
     def _llm_type(self) -> str:
@@ -56,6 +68,7 @@ class ReplayChatModel(BaseChatModel):
         key = _key(messages)
         if key in self.entries:
             self.hits += 1
+            self.used.add(key)
             entry = self.entries[key]
             message = AIMessage(content=entry["content"], usage_metadata=entry.get("usage") or None)
             return ChatResult(generations=[ChatGeneration(message=message)])
@@ -67,6 +80,7 @@ class ReplayChatModel(BaseChatModel):
         content = response.content if isinstance(response.content, str) else str(response.content)
         usage = getattr(response, "usage_metadata", None)
         self.entries[key] = {"content": content, "usage": dict(usage) if usage else None}
+        self.used.add(key)
         self._save()
         self.misses += 1
         message = AIMessage(content=content, usage_metadata=usage)

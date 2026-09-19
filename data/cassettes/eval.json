@@ -1,4 +1,20 @@
 {
+ "00b71be397c5f081634307c4814d23305a0a7eafae290c747e1f2cfaaf804789": {
+  "content": "{\n  \"appropriate\": {\n    \"p_true\": 0.9\n  },\n  \"args_complete\": {\n    \"p_true\": 0.9\n  }\n}",
+  "usage": null
+ },
+ "02ff44c490a394d1423d449551ff142c1838e58788fa56893da2f987bbdce766": {
+  "content": "{\n  \"appropriate\": {\n    \"p_true\": 0.9\n  },\n  \"args_complete\": {\n    \"p_true\": 0.9\n  }\n}",
+  "usage": null
+ },
+ "0354fa746dabc067205d4d68ce59eaaed96c3186c2a7525889e1dea0bf717c59": {
+  "content": "{\n  \"resolves\": {\n    \"p_true\": 0.9\n  },\n  \"unsupported_claims\": {\n    \"p_true\": 0.1\n  },\n  \"quality\": {\n    \"probabilities\": {\n      \"1\": 0.024999999999999994,\n      \"2\": 0.024999999999999994,\n      \"3\": 0.024999999999999994,\n      \"4\": 0.9,\n      \"5\": 0.024999999999999994\n    }\n  }\n}",
+  "usage": null
+ },
+ "04aa74868b1a617620c75fb686082fa9121b0e3a715bdc01f7120cbbf06a562c": {
+  "content": "{\n  \"appropriate\": {\n    \"p_true\": 0.9\n  },\n  \"args_complete\": {\n    \"p_true\": 0.9\n  }\n}",
+  "usage": null
+ },
  "0a26a23d47d17d7722a9ce1d7ae9cee212da5343788b2c5f458a2d99c73fe295": {
   "content": "{\n  \"category\": {\n    \"probabilities\": {\n      \"cancelamento\": 0.9,\n      \"financeiro_cobranca\": 0.1,\n      \"status_pedido\": 0,\n      \"comercial_vendas\": 0,\n      \"suporte_tecnico\": 0,\n      \"reclamacao_atendimento\": 0,\n      \"spam_irrelevante\": 0,\n      \"outro\": 0\n    }\n  },\n  \"urgency\": {\n    \"probabilities\": {\n      \"1\": 0,\n      \"2\": 0,\n      \"3\": 0.2,\n      \"4\": 0.7,\n      \"5\": 0.1\n    }\n  },\n  \"needs_human\": {\n    \"p_true\": 0.8\n  },\n  \"sensitive\": {\n    \"p_true\": 0.7\n  },\n  \"injection\": {\n    \"p_true\": 1\n  }\n}",
   "usage": {
@@ -127,6 +143,14 @@
    "total_tokens": 645
   }
  },
+ "197030f9851c1911906eec7fd973c28b8df80faf0bf3bd5e12dd9353d19ebe44": {
+  "content": "{\n  \"resolves\": {\n    \"p_true\": 0.1\n  },\n  \"unsupported_claims\": {\n    \"p_true\": 0.9\n  },\n  \"quality\": {\n    \"probabilities\": {\n      \"1\": 0.9,\n      \"2\": 0.024999999999999994,\n      \"3\": 0.024999999999999994,\n      \"4\": 0.024999999999999994,\n      \"5\": 0.024999999999999994\n    }\n  }\n}",
+  "usage": null
+ },
+ "1b031bcfb08c84927296c15480758254e1ba343e392bcf0dc37b0d5ff8ec0f71": {
+  "content": "{\n  \"resolves\": {\n    \"p_true\": 0.1\n  },\n  \"unsupported_claims\": {\n    \"p_true\": 0.9\n  },\n  \"quality\": {\n    \"probabilities\": {\n      \"1\": 0.9,\n      \"2\": 0.024999999999999994,\n      \"3\": 0.024999999999999994,\n      \"4\": 0.024999999999999994,\n      \"5\": 0.024999999999999994\n    }\n  }\n}",
+  "usage": null
+ },
  "1ff3eb24b3c60b75f24e20d621c089af89b2e0547900b6e003d7b2001d3f5ded": {
   "content": "{\n  \"category\": {\n    \"probabilities\": {\n      \"financeiro_cobranca\": 0.9,\n      \"cancelamento\": 0.05,\n      \"status_pedido\": 0.02,\n      \"comercial_vendas\": 0.01,\n      \"suporte_tecnico\": 0.01,\n      \"reclamacao_atendimento\": 0.005,\n      \"spam_irrelevante\": 0.0,\n      \"outro\": 0.005\n    }\n  },\n  \"urgency\": {\n    \"probabilities\": {\n      \"1\": 0.0,\n      \"2\": 0.1,\n      \"3\": 0.3,\n      \"4\": 0.5,\n      \"5\": 0.1\n    }\n  },\n  \"needs_human\": {\n    \"p_true\": 0.3\n  },\n  \"sensitive\": {\n    \"p_true\": 0.0\n  },\n  \"injection\": {\n    \"p_true\": 0.0\n  }\n}",
   "usage": {
@@ -174,6 +198,10 @@
    "output_tokens": 79,
    "total_tokens": 548
   }
+ },
+ "2ca62931db21546d371bb5ee36731d62a3a416051d9fdd7885119e62edbefae7": {
+  "content": "{\n  \"appropriate\": {\n    \"p_true\": 0.9\n  },\n  \"args_complete\": {\n    \"p_true\": 0.1\n  }\n}",
+  "usage": null
  },
  "31271774567eed06e3d856878f7e105cc60909eebf96685d49ec0ab9ef122264": {
   "content": "{\n  \"category\": {\n    \"probabilities\": {\n      \"status_pedido\": 0.0,\n      \"financeiro_cobranca\": 0.0,\n      \"comercial_vendas\": 0.95,\n      \"cancelamento\": 0.0,\n      \"suporte_tecnico\": 0.0,\n      \"reclamacao_atendimento\": 0.0,\n      \"spam_irrelevante\": 0.0,\n      \"outro\": 0.05\n    }\n  },\n  \"urgency\": {\n    \"probabilities\": {\n      \"1\": 0.1,\n      \"2\": 0.7,\n      \"3\": 0.2,\n      \"4\": 0.0,\n      \"5\": 0.0\n    }\n  },\n  \"needs_human\": {\n    \"p_true\": 0.05\n  },\n  \"sensitive\": {\n    \"p_true\": 0.0\n  },\n  \"injection\": {\n    \"p_true\": 0.0\n  }\n}",
@@ -239,6 +267,10 @@
    "total_tokens": 1051
   }
  },
+ "3a8be7c9a985820739ef90c598207e9c4b00a7d5ccbb70c04fa4a78061d65a1d": {
+  "content": "{\n  \"resolves\": {\n    \"p_true\": 0.1\n  },\n  \"unsupported_claims\": {\n    \"p_true\": 0.9\n  },\n  \"quality\": {\n    \"probabilities\": {\n      \"1\": 0.9,\n      \"2\": 0.024999999999999994,\n      \"3\": 0.024999999999999994,\n      \"4\": 0.024999999999999994,\n      \"5\": 0.024999999999999994\n    }\n  }\n}",
+  "usage": null
+ },
  "3c71b7aee57a98db88f9dd5ab8af63085e29882660fb12a2a0602dffde754a2b": {
   "content": "{\n  \"appropriate\": {\"p_true\": 0.95},\n  \"args_complete\": {\"p_true\": 0.9}\n}",
   "usage": {
@@ -271,6 +303,10 @@
    "total_tokens": 1024
   }
  },
+ "3f2dd20f50d77725e3ae5d5e2d55317d55bce1da0f36364e9fdc8f24e8e6b1a1": {
+  "content": "{\n  \"appropriate\": {\n    \"p_true\": 0.9\n  },\n  \"args_complete\": {\n    \"p_true\": 0.9\n  }\n}",
+  "usage": null
+ },
  "40a4fdce31aa9bb3c0ff5544959cd494964a752423f0224d0d22d5c3538bfc02": {
   "content": "{\n  \"category\": {\n    \"probabilities\": {\n      \"status_pedido\": 0.0,\n      \"financeiro_cobranca\": 0.0,\n      \"comercial_vendas\": 0.0,\n      \"cancelamento\": 0.0,\n      \"suporte_tecnico\": 0.0,\n      \"reclamacao_atendimento\": 0.0,\n      \"spam_irrelevante\": 1.0,\n      \"outro\": 0.0\n    }\n  },\n  \"urgency\": {\n    \"probabilities\": {\n      \"1\": 1.0,\n      \"2\": 0.0,\n      \"3\": 0.0,\n      \"4\": 0.0,\n      \"5\": 0.0\n    }\n  },\n  \"needs_human\": {\n    \"p_true\": 0.0\n  },\n  \"sensitive\": {\n    \"p_true\": 0.0\n  },\n  \"injection\": {\n    \"p_true\": 0.0\n  }\n}",
   "usage": {
@@ -302,6 +338,10 @@
    "output_tokens": 227,
    "total_tokens": 1055
   }
+ },
+ "423346ca85be444e1a46a49903ca8a89a36aab93f1997e8c5c09d9ad8b996509": {
+  "content": "{\n  \"resolves\": {\n    \"p_true\": 0.9\n  },\n  \"unsupported_claims\": {\n    \"p_true\": 0.9\n  },\n  \"quality\": {\n    \"probabilities\": {\n      \"1\": 0.024999999999999994,\n      \"2\": 0.9,\n      \"3\": 0.024999999999999994,\n      \"4\": 0.024999999999999994,\n      \"5\": 0.024999999999999994\n    }\n  }\n}",
+  "usage": null
  },
  "4487d52850f9330dc29fceabb752ecb7e0c48fe7d9ad1399c4537d0864c8f725": {
   "content": "{\n  \"appropriate\": {\"p_true\": 0.95},\n  \"args_complete\": {\"p_true\": 0.9}\n}",
@@ -430,6 +470,10 @@
    "output_tokens": 227,
    "total_tokens": 1057
   }
+ },
+ "5d0e6a8f0948aecd5bfb1aae6b1bcac2c3cf0423103e340250c5fe14c2091f01": {
+  "content": "{\n  \"appropriate\": {\n    \"p_true\": 0.1\n  },\n  \"args_complete\": {\n    \"p_true\": 0.1\n  }\n}",
+  "usage": null
  },
  "5e2272113737a88ba62f1a8739a2d9757e100b7468ffe74673836af4294c64b4": {
   "content": "{\n  \"category\": {\n    \"probabilities\": {\n      \"reclamacao_atendimento\": 0.95,\n      \"outro\": 0.05,\n      \"status_pedido\": 0,\n      \"financeiro_cobranca\": 0,\n      \"comercial_vendas\": 0,\n      \"cancelamento\": 0,\n      \"suporte_tecnico\": 0,\n      \"spam_irrelevante\": 0\n    }\n  },\n  \"urgency\": {\n    \"probabilities\": {\n      \"1\": 0.1,\n      \"2\": 0.6,\n      \"3\": 0.3,\n      \"4\": 0,\n      \"5\": 0\n    }\n  },\n  \"needs_human\": {\n    \"p_true\": 0.85\n  },\n  \"sensitive\": {\n    \"p_true\": 0\n  },\n  \"injection\": {\n    \"p_true\": 0\n  }\n}",
@@ -623,6 +667,10 @@
    "total_tokens": 1050
   }
  },
+ "8741955066a48b6b19b0a01ca11846c7d52a211a1fd560b961fab956c2599c77": {
+  "content": "{\n  \"appropriate\": {\n    \"p_true\": 0.9\n  },\n  \"args_complete\": {\n    \"p_true\": 0.9\n  }\n}",
+  "usage": null
+ },
  "887616eb029835b99f49fa6e02fbc60d332f24e0e93ac31e405101a14a62b9a9": {
   "content": "{\n  \"category\": {\n    \"probabilities\": {\n      \"status_pedido\": 0.05,\n      \"financeiro_cobranca\": 0.0,\n      \"comercial_vendas\": 0.0,\n      \"cancelamento\": 0.0,\n      \"suporte_tecnico\": 0.9,\n      \"reclamacao_atendimento\": 0.05,\n      \"spam_irrelevante\": 0.0,\n      \"outro\": 0.0\n    }\n  },\n  \"urgency\": {\n    \"probabilities\": {\n      \"1\": 0.1,\n      \"2\": 0.6,\n      \"3\": 0.25,\n      \"4\": 0.05,\n      \"5\": 0.0\n    }\n  },\n  \"needs_human\": {\n    \"p_true\": 0.2\n  },\n  \"sensitive\": {\n    \"p_true\": 0.0\n  },\n  \"injection\": {\n    \"p_true\": 0.0\n  }\n}",
   "usage": {
@@ -638,6 +686,10 @@
    "output_tokens": 227,
    "total_tokens": 1041
   }
+ },
+ "98216df2a7cd6406f9d94cb789a3342f77aa6246caf201a7018d636327204334": {
+  "content": "{\n  \"appropriate\": {\n    \"p_true\": 0.9\n  },\n  \"args_complete\": {\n    \"p_true\": 0.1\n  }\n}",
+  "usage": null
  },
  "9be347f80b93059a4e82a68b8a30dfd75f11b8f2d7b57793211cd64379558a07": {
   "content": "{\n  \"category\": {\n    \"probabilities\": {\n      \"status_pedido\": 0.0,\n      \"financeiro_cobranca\": 0.0,\n      \"comercial_vendas\": 0.0,\n      \"cancelamento\": 0.0,\n      \"suporte_tecnico\": 0.0,\n      \"reclamacao_atendimento\": 0.0,\n      \"spam_irrelevante\": 0.95,\n      \"outro\": 0.05\n    }\n  },\n  \"urgency\": {\n    \"probabilities\": {\n      \"1\": 0.0,\n      \"2\": 0.0,\n      \"3\": 0.1,\n      \"4\": 0.8,\n      \"5\": 0.1\n    }\n  },\n  \"needs_human\": {\n    \"p_true\": 0.1\n  },\n  \"sensitive\": {\n    \"p_true\": 0.0\n  },\n  \"injection\": {\n    \"p_true\": 0.0\n  }\n}",
@@ -687,6 +739,14 @@
    "total_tokens": 1066
   }
  },
+ "_meta": {
+  "comment": "entradas para g-13..g-24 e v-13..v-24 geradas de forma determinística (respostas consistentes com os rótulos, p=0.9). Regravar com --record assim que houver chave de modelo emulador.",
+  "date": "2026-09-19"
+ },
+ "a88d1b05f6cd0df85574d4593312e9f3dcac684eedc81fb2b3a4479ec180028a": {
+  "content": "{\n  \"resolves\": {\n    \"p_true\": 0.9\n  },\n  \"unsupported_claims\": {\n    \"p_true\": 0.1\n  },\n  \"quality\": {\n    \"probabilities\": {\n      \"1\": 0.024999999999999994,\n      \"2\": 0.024999999999999994,\n      \"3\": 0.024999999999999994,\n      \"4\": 0.024999999999999994,\n      \"5\": 0.9\n    }\n  }\n}",
+  "usage": null
+ },
  "a977efc21464fc6bb395b9054d8d66438f240ca85e530c024cf0a6d313b0bae9": {
   "content": "{\n  \"resolves\": {\"p_true\": 0.95},\n  \"quality\": {\"probabilities\": {\"1\": 0.0, \"2\": 0.05, \"3\": 0.3, \"4\": 0.5, \"5\": 0.15}},\n  \"unsupported_claims\": {\"p_true\": 0.0}\n}",
   "usage": {
@@ -702,6 +762,10 @@
    "output_tokens": 79,
    "total_tokens": 562
   }
+ },
+ "ad9502f6489fff96b67478671b6c6bf710dcc6180da84ea2be2091b8faa4ae82": {
+  "content": "{\n  \"resolves\": {\n    \"p_true\": 0.1\n  },\n  \"unsupported_claims\": {\n    \"p_true\": 0.9\n  },\n  \"quality\": {\n    \"probabilities\": {\n      \"1\": 0.024999999999999994,\n      \"2\": 0.9,\n      \"3\": 0.024999999999999994,\n      \"4\": 0.024999999999999994,\n      \"5\": 0.024999999999999994\n    }\n  }\n}",
+  "usage": null
  },
  "b203a8b0a8e93fba2048173484195279e071eef9ac40bf4976ca1e63cce7fb67": {
   "content": "{\n  \"appropriate\": {\"p_true\": 0.9},\n  \"args_complete\": {\"p_true\": 0.85}\n}",
@@ -735,6 +799,14 @@
    "total_tokens": 1055
   }
  },
+ "b2e77a3e7e0c42a0e5b694957f77e9bdef9df8d739a4a2bb68c577783c28238f": {
+  "content": "{\n  \"resolves\": {\n    \"p_true\": 0.1\n  },\n  \"unsupported_claims\": {\n    \"p_true\": 0.9\n  },\n  \"quality\": {\n    \"probabilities\": {\n      \"1\": 0.9,\n      \"2\": 0.024999999999999994,\n      \"3\": 0.024999999999999994,\n      \"4\": 0.024999999999999994,\n      \"5\": 0.024999999999999994\n    }\n  }\n}",
+  "usage": null
+ },
+ "b491f034310b0a94c79afeec90aa0a0de581421bb19c168b2cea5a9030af9a46": {
+  "content": "{\n  \"resolves\": {\n    \"p_true\": 0.9\n  },\n  \"unsupported_claims\": {\n    \"p_true\": 0.1\n  },\n  \"quality\": {\n    \"probabilities\": {\n      \"1\": 0.024999999999999994,\n      \"2\": 0.024999999999999994,\n      \"3\": 0.024999999999999994,\n      \"4\": 0.9,\n      \"5\": 0.024999999999999994\n    }\n  }\n}",
+  "usage": null
+ },
  "b7692fd0292ed81f159c642e4a10ec20063168130201a79b3864b282b0a85fc5": {
   "content": "{\n  \"category\": {\n    \"probabilities\": {\n      \"financeiro_cobranca\": 0.9,\n      \"status_pedido\": 0.05,\n      \"comercial_vendas\": 0.01,\n      \"cancelamento\": 0.01,\n      \"suporte_tecnico\": 0.01,\n      \"reclamacao_atendimento\": 0.01,\n      \"spam_irrelevante\": 0.0,\n      \"outro\": 0.01\n    }\n  },\n  \"urgency\": {\n    \"probabilities\": {\n      \"1\": 0.1,\n      \"2\": 0.7,\n      \"3\": 0.15,\n      \"4\": 0.05,\n      \"5\": 0.0\n    }\n  },\n  \"needs_human\": {\n    \"p_true\": 0.05\n  },\n  \"sensitive\": {\n    \"p_true\": 0.0\n  },\n  \"injection\": {\n    \"p_true\": 0.0\n  }\n}",
   "usage": {
@@ -767,6 +839,14 @@
    "total_tokens": 1051
   }
  },
+ "ba0f1754ee1cbc38b189b2a7b376d2d6217caf4f1d6ab27cc2a99a329b30c9ef": {
+  "content": "{\n  \"resolves\": {\n    \"p_true\": 0.1\n  },\n  \"unsupported_claims\": {\n    \"p_true\": 0.9\n  },\n  \"quality\": {\n    \"probabilities\": {\n      \"1\": 0.9,\n      \"2\": 0.024999999999999994,\n      \"3\": 0.024999999999999994,\n      \"4\": 0.024999999999999994,\n      \"5\": 0.024999999999999994\n    }\n  }\n}",
+  "usage": null
+ },
+ "be29f11f3f50ffee715fd8753ee6f945a438fcb2c663f59dd30a2153503cdac9": {
+  "content": "{\n  \"appropriate\": {\n    \"p_true\": 0.9\n  },\n  \"args_complete\": {\n    \"p_true\": 0.1\n  }\n}",
+  "usage": null
+ },
  "be7b04afccc049c785465a4b546ba242345e809d7d36c17c37464c0df550c445": {
   "content": "{\n  \"category\": {\n    \"probabilities\": {\n      \"status_pedido\": 0.0,\n      \"financeiro_cobranca\": 0.0,\n      \"comercial_vendas\": 0.0,\n      \"cancelamento\": 0.0,\n      \"suporte_tecnico\": 0.0,\n      \"reclamacao_atendimento\": 0.0,\n      \"spam_irrelevante\": 1.0,\n      \"outro\": 0.0\n    }\n  },\n  \"urgency\": {\n    \"probabilities\": {\n      \"1\": 1.0,\n      \"2\": 0.0,\n      \"3\": 0.0,\n      \"4\": 0.0,\n      \"5\": 0.0\n    }\n  },\n  \"needs_human\": {\n    \"p_true\": 0.0\n  },\n  \"sensitive\": {\n    \"p_true\": 0.0\n  },\n  \"injection\": {\n    \"p_true\": 0.0\n  }\n}",
   "usage": {
@@ -798,6 +878,10 @@
    "output_tokens": 219,
    "total_tokens": 1037
   }
+ },
+ "cb19551036fabfaafb9b785deaad5bcb946bffe558ae521bb3ec9f9253337286": {
+  "content": "{\n  \"appropriate\": {\n    \"p_true\": 0.9\n  },\n  \"args_complete\": {\n    \"p_true\": 0.9\n  }\n}",
+  "usage": null
  },
  "cb647646ec801cae33cf8b7e1047cd88e412a4f352f3355a0dc64936a51b62b3": {
   "content": "{\n  \"category\": {\n    \"probabilities\": {\n      \"financeiro_cobranca\": 0.9,\n      \"status_pedido\": 0.05,\n      \"comercial_vendas\": 0.01,\n      \"cancelamento\": 0.01,\n      \"suporte_tecnico\": 0.01,\n      \"reclamacao_atendimento\": 0.01,\n      \"spam_irrelevante\": 0.0,\n      \"outro\": 0.01\n    }\n  },\n  \"urgency\": {\n    \"probabilities\": {\n      \"1\": 0.05,\n      \"2\": 0.6,\n      \"3\": 0.3,\n      \"4\": 0.05,\n      \"5\": 0.0\n    }\n  },\n  \"needs_human\": {\n    \"p_true\": 0.1\n  },\n  \"sensitive\": {\n    \"p_true\": 0.0\n  },\n  \"injection\": {\n    \"p_true\": 0.0\n  }\n}",
@@ -847,6 +931,14 @@
    "total_tokens": 659
   }
  },
+ "d0e194d99fbabf38b3c73738aefaa20d962432c5540403d499cf4ffd0409a6b0": {
+  "content": "{\n  \"appropriate\": {\n    \"p_true\": 0.9\n  },\n  \"args_complete\": {\n    \"p_true\": 0.9\n  }\n}",
+  "usage": null
+ },
+ "d0f703e73a20b59b747f1082ea3af418dd0287b8552ee8c1c15dca49a5eddaa3": {
+  "content": "{\n  \"appropriate\": {\n    \"p_true\": 0.9\n  },\n  \"args_complete\": {\n    \"p_true\": 0.1\n  }\n}",
+  "usage": null
+ },
  "d540a606fe739249d5b801427a7731c7155d809e4d7534d1dbdefcdfbe158a1d": {
   "content": "{\n  \"category\": {\n    \"probabilities\": {\n      \"status_pedido\": 0.95,\n      \"financeiro_cobranca\": 0.01,\n      \"comercial_vendas\": 0.01,\n      \"cancelamento\": 0.01,\n      \"suporte_tecnico\": 0.005,\n      \"reclamacao_atendimento\": 0.01,\n      \"spam_irrelevante\": 0.0,\n      \"outro\": 0.005\n    }\n  },\n  \"urgency\": {\n    \"probabilities\": {\n      \"1\": 0.05,\n      \"2\": 0.15,\n      \"3\": 0.6,\n      \"4\": 0.2,\n      \"5\": 0.0\n    }\n  },\n  \"needs_human\": {\n    \"p_true\": 0.2\n  },\n  \"sensitive\": {\n    \"p_true\": 0.0\n  },\n  \"injection\": {\n    \"p_true\": 0.0\n  }\n}",
   "usage": {
@@ -862,6 +954,10 @@
    "output_tokens": 227,
    "total_tokens": 1047
   }
+ },
+ "d703aa0c9aecfa5512e06bcd549fd9d4f77bbe04e41cf3d32d7fa02ef4ed6e4b": {
+  "content": "{\n  \"resolves\": {\n    \"p_true\": 0.1\n  },\n  \"unsupported_claims\": {\n    \"p_true\": 0.1\n  },\n  \"quality\": {\n    \"probabilities\": {\n      \"1\": 0.024999999999999994,\n      \"2\": 0.9,\n      \"3\": 0.024999999999999994,\n      \"4\": 0.024999999999999994,\n      \"5\": 0.024999999999999994\n    }\n  }\n}",
+  "usage": null
  },
  "d93ea85d181730c9d41f915a98fe60b4324da75c82c520dc0dc66337fd7e28ec": {
   "content": "{\n  \"appropriate\": {\"p_true\": 0.8},\n  \"args_complete\": {\"p_true\": 0.1}\n}",
@@ -974,6 +1070,10 @@
    "output_tokens": 79,
    "total_tokens": 581
   }
+ },
+ "f54e78cd82733f55894ad4379c155c960456ed9a1f7addd2f0cb421b1be6b5a5": {
+  "content": "{\n  \"resolves\": {\n    \"p_true\": 0.9\n  },\n  \"unsupported_claims\": {\n    \"p_true\": 0.1\n  },\n  \"quality\": {\n    \"probabilities\": {\n      \"1\": 0.024999999999999994,\n      \"2\": 0.024999999999999994,\n      \"3\": 0.024999999999999994,\n      \"4\": 0.9,\n      \"5\": 0.024999999999999994\n    }\n  }\n}",
+  "usage": null
  },
  "ff9b4b5aefece9da4a5c61f53aae3e6eb9abb5dfe3dd2e6f861e9a7a4a3b5c8c": {
   "content": "{\n  \"appropriate\": {\"p_true\": 0.95},\n  \"args_complete\": {\"p_true\": 0.9}\n}",
