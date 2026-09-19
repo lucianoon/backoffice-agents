@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @field_validator("emulator_price_input_per_m", "emulator_price_output_per_m",
+                     mode="before")
+    @classmethod
+    def _empty_is_none(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
 
     # LLM
     llm_provider: str = "openai"
