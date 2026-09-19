@@ -7,7 +7,8 @@ from langchain_core.language_models import BaseChatModel
 from .config import Settings
 
 
-def build_llm(settings: Settings) -> BaseChatModel:
+def build_llm(settings: Settings, model: str | None = None) -> BaseChatModel:
+    """`model` sobrescreve LLM_MODEL (usado para o emulador mais barato, mesmo provedor)."""
     from langchain.chat_models import init_chat_model
 
     kwargs: dict = {"temperature": settings.llm_temperature}
@@ -19,4 +20,11 @@ def build_llm(settings: Settings) -> BaseChatModel:
         kwargs.setdefault("api_key", "not-needed")
     # Sem LLM_API_KEY, o SDK do provedor lê a variável padrão (OPENAI_API_KEY, ANTHROPIC_API_KEY...).
 
-    return init_chat_model(settings.llm_model, model_provider=settings.llm_provider, **kwargs)
+    return init_chat_model(model or settings.llm_model, model_provider=settings.llm_provider, **kwargs)
+
+
+def build_emulator_llm(settings: Settings, agent_llm: BaseChatModel | None = None) -> BaseChatModel:
+    """LLM do emulador do Jev: EMULATOR_MODEL se definido, senão o mesmo do agente."""
+    if settings.emulator_model:
+        return build_llm(settings, model=settings.emulator_model)
+    return agent_llm or build_llm(settings)

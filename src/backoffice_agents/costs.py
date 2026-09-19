@@ -51,7 +51,11 @@ def _p95(values: list[float]) -> float:
 def _cost(kind: str, calibrated: bool, input_tokens: int, output_tokens: int, s: Settings) -> float:
     if kind == "jev" and calibrated:
         return input_tokens * s.jev_price_input_per_m / 1e6
-    # LLM do agente e emulador (que é o mesmo LLM) pagam preço de LLM
+    if kind == "jev" and s.emulator_price_input_per_m is not None:
+        # emulador em modelo mais barato (EMULATOR_MODEL) com preço próprio
+        out_price = s.emulator_price_output_per_m if s.emulator_price_output_per_m is not None else 0.0
+        return (input_tokens * s.emulator_price_input_per_m + output_tokens * out_price) / 1e6
+    # LLM do agente e emulador no mesmo modelo pagam preço de LLM
     return (input_tokens * s.llm_price_input_per_m + output_tokens * s.llm_price_output_per_m) / 1e6
 
 

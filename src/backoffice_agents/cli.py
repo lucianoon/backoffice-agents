@@ -36,9 +36,23 @@ def worker(watch: bool = typer.Option(False, help="Fica em loop ingerindo e proc
         runner.ingest_emails()
         for item_id, status in runner.run_pending():
             rprint(f"  {item_id} -> [bold]{status}[/bold]")
+        purged = runner.purge()
+        if purged.redacted or purged.deleted:
+            rprint(f"  retenção: {len(purged.redacted)} redigido(s), {len(purged.deleted)} apagado(s)")
         if not watch:
             break
         time.sleep(interval)
+
+
+@app.command()
+def purge(dry_run: bool = typer.Option(False, help="só lista o que seria redigido e apagado")) -> None:
+    """Expurgo por retenção: redige itens encerrados após RETENTION_REDACT_DAYS e apaga após
+    RETENTION_DELETE_DAYS."""
+    runner = _runner()
+    result = runner.purge(dry_run=dry_run)
+    prefix = "[dry-run] " if dry_run else ""
+    rprint(f"{prefix}redigidos: {len(result.redacted)} {result.redacted[:10]}")
+    rprint(f"{prefix}apagados: {len(result.deleted)} {result.deleted[:10]}")
 
 
 @app.command()
@@ -141,7 +155,7 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
     from .eval_shadow import suggest_thresholds as _suggest
     from .jev.client import RealJevClient
     from .jev.emulated import EmulatedJevClient
-    from .llm import build_llm
+    from .llm import build_emulator_llm
     from .replay import ReplayChatModel
     from .tenant import load_tenant
 
@@ -156,10 +170,11 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
         if replay:
             llm, label_llm = ReplayChatModel(cassette_path=replay, mode="replay"), f"replay:{replay}"
         elif record:
-            llm = ReplayChatModel(cassette_path=record, mode="record", inner=build_llm(settings))
-            label_llm = f"emulado:{settings.llm_model} (gravando)"
+            llm = ReplayChatModel(cassette_path=record, mode="record", inner=build_emulator_llm(settings))
+            label_llm = f"emulado:{settings.emulator_model or settings.llm_model} (gravando)"
         else:
-            llm, label_llm = build_llm(settings), f"emulado:{settings.llm_model}"
+            llm = build_emulator_llm(settings)
+            label_llm = f"emulado:{settings.emulator_model or settings.llm_model}"
         clients.append((label_llm, EmulatedJevClient(llm)))
 
     failures: list[str] = []

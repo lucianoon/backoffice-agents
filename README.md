@@ -80,6 +80,20 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
   `--push-cloudwatch` publica no CloudWatch (extra `aws`). O worker avisa no Telegram, com
   cooldown, quando uma aprovação envelhece, a fila passa do limite ou a taxa de erro sobe.
 
+### Retenção, concorrência e emulador mais barato
+
+- **Retenção (LGPD)**: itens encerrados são redigidos após `RETENTION_REDACT_DAYS` (corpo,
+  remetente, anexos, mensagens, rascunho e fatos somem; ficam status, triagem, números da
+  verificação e notas, que a calibração e o custo usam) e apagados após `RETENTION_DELETE_DAYS`,
+  com decisões, chamadas e aprovações. Itens em aberto nunca são tocados. O worker roda o expurgo
+  a cada ciclo; `backoffice purge --dry-run` lista o que seria feito.
+- **Concorrência**: `WORKER_CONCURRENCY` processa vários itens em paralelo dentro de um worker,
+  com a mesma reserva atômica da fila. `JEV_MAX_RPM` limita as requisições ao Jev real entre as
+  threads, abaixo do teto de 1.200 por minuto da API.
+- **Emulador mais barato**: `EMULATOR_MODEL` usa outro modelo do mesmo provedor só para o
+  emulador do Jev (por exemplo, `gpt-4.1-nano`), com preço próprio em `EMULATOR_PRICE_*` para o
+  relatório de custo. O agente continua no modelo principal.
+
 ### Rotulagem, calibração e limiares
 
 - **Taxonomia** em `docs/TAXONOMIA.md`: a categoria é a ação operacional pedida; tom e ameaça vão
@@ -203,6 +217,8 @@ src/backoffice_agents/
   replay.py        gravação e replay das respostas do LLM (regressão no CI)
   obs.py           logs estruturados
   metrics.py       métricas da fila, Prometheus, CloudWatch e alertas
+  retention.py     expurgo por retenção em duas fases
+  ratelimit.py     limitador de requisições por minuto ao Jev
 data/cassettes/    cassete de replay da avaliação
   threads.py       ligação de e-mails à conversa e histórico para o agente
   knowledge.py     base de conhecimento com o Jev pontuando trechos

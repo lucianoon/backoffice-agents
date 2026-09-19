@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -14,9 +15,10 @@ from .graph import build_graph
 from .graph.nodes import Nodes
 from .jev import JevClient, build_jev_client
 from .jev.emulated import EmulatedJevClient
-from .llm import build_llm
+from .llm import build_emulator_llm, build_llm
 from .metrics import alerts, collect_metrics
 from .obs import log_event, setup_logging
+from .retention import PurgeResult, purge
 from .storage import Store
 from .tenant import Tenant, load_tenant
 from .threads import resolve_thread
@@ -47,10 +49,11 @@ class Runner:
     def from_settings(cls, settings: Settings, llm: BaseChatModel | None = None,
                       adapters: Adapters | None = None) -> Runner:
         llm = llm or build_llm(settings)
+        emulator_llm = build_emulator_llm(settings, llm)   # EMULATOR_MODEL: mais barato so para decidir
         fallback = None
         if settings.jev_mode == "real" and settings.jev_fallback_emulated:
-            fallback = EmulatedJevClient(llm)
-        return cls(settings=settings, llm=llm, jev=build_jev_client(settings, llm),
+            fallback = EmulatedJevClient(emulator_llm)
+        return cls(settings=settings, llm=llm, jev=build_jev_client(settings, emulator_llm),
                    adapters=adapters or build_adapters(settings), store=Store(settings.db_url),
                    jev_fallback=fallback)
 
@@ -107,20 +110,42 @@ class Runner:
         outcomes: list[tuple[str, str]] = []
         outcomes += self._recover_in_flight()
         seen: set[str] = set()
-        while (item := self.store.claim_next(self.settings.max_attempts, self.settings.retry_delay_s,
-                                             exclude=seen)) is not None:
-            seen.add(item["id"])
+
+        def claim_items(limit: int) -> list[dict[str, Any]]:
+            batch = []
+            while len(batch) < limit and (item := self.store.claim_next(
+                    self.settings.max_attempts, self.settings.retry_delay_s, exclude=seen)) is not None:
+                seen.add(item["id"])
+                batch.append(item)
+            return batch
+
+        def run_item(item: dict[str, Any]) -> tuple[str, str]:
             try:
-                outcomes.append((item["id"], self.process_item(item["id"])["status"]))
+                return item["id"], self.process_item(item["id"])["status"]
             except Exception:
-                outcomes.append((item["id"], self.store.get_item(item["id"])["status"]))
-        while (approval := self.store.claim_next_approval()) is not None:
+                return item["id"], self.store.get_item(item["id"])["status"]
+
+        def run_approval(approval: dict[str, Any]) -> tuple[str, str]:
             try:
-                outcomes.append((approval["item_id"], self.resume_item(approval)["status"]))
+                return approval["item_id"], self.resume_item(approval)["status"]
             except Exception:
-                outcomes.append((approval["item_id"], self.store.get_item(approval["item_id"])["status"]))
+                return approval["item_id"], self.store.get_item(approval["item_id"])["status"]
+
+        workers = max(1, self.settings.worker_concurrency)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            while batch := claim_items(workers):
+                outcomes += list(pool.map(run_item, batch))
+            approvals_batch: list[dict[str, Any]] = []
+            while (approval := self.store.claim_next_approval()) is not None:
+                approvals_batch.append(approval)
+            if approvals_batch:
+                outcomes += list(pool.map(run_approval, approvals_batch))
         self.check_alerts()
         return outcomes
+
+    def purge(self, dry_run: bool = False) -> PurgeResult:
+        """Expurgo por retencao (LGPD): redige e apaga itens encerrados conforme os prazos."""
+        return purge(self.store, self.settings, dry_run=dry_run)
 
     def check_alerts(self) -> list[str]:
         """Avisa o operador no Telegram sobre fila cheia, aprovacoes envelhecendo e taxa de erro."""

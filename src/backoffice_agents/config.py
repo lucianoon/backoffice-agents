@@ -80,6 +80,19 @@ class Settings(BaseSettings):
     # Configuração por cliente: taxonomia, níveis, prompt, assinatura (tenants/*.toml)
     tenant_file: str = "tenants/default.toml"
 
+    # Retenção (LGPD): dias após o encerramento do item
+    retention_redact_days: int = 30       # remove conteúdo do cliente, mantém metadados
+    retention_delete_days: int = 180      # apaga o item e tudo o que aponta para ele
+
+    # Concorrência dentro do worker e limite de requisições ao Jev (a API publica 1.200/min)
+    worker_concurrency: int = 1
+    jev_max_rpm: int = 600
+
+    # Modelo mais barato só para o emulador do Jev (vazio = mesmo LLM do agente)
+    emulator_model: str | None = None
+    emulator_price_input_per_m: float | None = None
+    emulator_price_output_per_m: float | None = None
+
     # Observabilidade
     log_format: Literal["text", "json"] = "text"
     log_level: str = "INFO"

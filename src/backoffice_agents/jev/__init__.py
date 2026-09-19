@@ -30,5 +30,6 @@ def build_jev_client(settings: Settings, llm: BaseChatModel) -> JevClient:
             model=settings.jev_model,
             base_url=settings.jev_base_url,
             timeout_s=settings.jev_timeout_s,
+            max_rpm=settings.jev_max_rpm,
         )
     return EmulatedJevClient(llm)

@@ -47,6 +47,7 @@ work_items = Table(
     Column("thread_id", String(128), index=True),      # conversa a que o item pertence
     Column("message_id", String(256)),                 # Message-ID do e-mail recebido
     Column("sent_message_id", String(256)),            # Message-ID da nossa resposta
+    Column("redacted_at", String(40)),                 # conteudo do cliente removido (retencao)
     Column("created_at", String(40), nullable=False),
     Column("updated_at", String(40), nullable=False),
 )
@@ -151,7 +152,8 @@ class Store:
                 conn.execute(text("ALTER TABLE work_items ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"))
             if "claimed_by" not in existing:
                 conn.execute(text("ALTER TABLE work_items ADD COLUMN claimed_by VARCHAR(128)"))
-            for column, size in (("thread_id", 128), ("message_id", 256), ("sent_message_id", 256)):
+            for column, size in (("thread_id", 128), ("message_id", 256), ("sent_message_id", 256),
+                                 ("redacted_at", 40)):
                 if column not in existing:
                     conn.execute(text(f"ALTER TABLE work_items ADD COLUMN {column} VARCHAR({size})"))
             if "human_label_by" not in decision_columns:
@@ -274,6 +276,28 @@ class Store:
             stmt = stmt.where(work_items.c.status == status)
         with self.engine.connect() as conn:
             return [_item(r) for r in conn.execute(stmt)]
+
+    # ---- retencao ----
+    def list_terminal_before(self, before: str, statuses: tuple[str, ...]) -> list[dict[str, Any]]:
+        stmt = select(work_items).where(work_items.c.status.in_(list(statuses))
+                                        & (work_items.c.updated_at < before)
+                                        ).order_by(work_items.c.updated_at)
+        with self.engine.connect() as conn:
+            return [_item(r) for r in conn.execute(stmt)]
+
+    def redact_item(self, item_id: str, payload: dict[str, Any], state: dict[str, Any]) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(update(work_items).where(work_items.c.id == item_id).values(
+                payload=json.dumps(payload, ensure_ascii=False), state=json.dumps(state, ensure_ascii=False),
+                message_id=None, sent_message_id=None, redacted_at=_now()))
+
+    def delete_items(self, item_ids: list[str]) -> None:
+        if not item_ids:
+            return
+        with self.engine.begin() as conn:
+            for table in (decisions, model_calls, approvals):
+                conn.execute(table.delete().where(table.c.item_id.in_(item_ids)))
+            conn.execute(work_items.delete().where(work_items.c.id.in_(item_ids)))
 
     # ---- decisions ----
     def log_decision(self, item_id: str, stage: str, question_id: str, question_type: str,

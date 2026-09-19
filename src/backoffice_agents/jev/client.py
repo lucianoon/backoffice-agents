@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from ..ratelimit import RateLimiter
 from .models import JevResponse, Question, parse_answer, questions_payload
 
 RETRY_STATUSES = {429, 529}
@@ -23,12 +24,13 @@ class RealJevClient:
 
     def __init__(self, api_key: str, model: str = "jev-latest",
                  base_url: str = "https://api.typesafe.ai/v1/systemone",
-                 timeout_s: float = 15.0, max_retries: int = 3) -> None:
+                 timeout_s: float = 15.0, max_retries: int = 3, max_rpm: int = 0) -> None:
         if not api_key:
             raise ValueError("TYPESAFE_API_KEY é obrigatória com JEV_MODE=real")
         self._model = model
         self._url = base_url
         self._max_retries = max_retries
+        self._limiter = RateLimiter(max_rpm)  # compartilhado entre as threads do worker
         self._http = httpx.Client(
             timeout=timeout_s,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -39,6 +41,7 @@ class RealJevClient:
         started = time.perf_counter()
         delay = 0.5
         for attempt in range(self._max_retries + 1):
+            self._limiter.acquire()
             response = self._http.post(self._url, json=body)
             if response.status_code in RETRY_STATUSES and attempt < self._max_retries:
                 time.sleep(delay)
