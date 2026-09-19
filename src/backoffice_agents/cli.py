@@ -75,6 +75,9 @@ def show(item_id: str) -> None:
         rprint(f"  • {note}")
     if state.get("draft_reply"):
         rprint("\n[bold]Rascunho:[/bold]\n" + state["draft_reply"])
+    for claim in (state.get("verification") or {}).get("claims", []):
+        mark = "[green]ok[/green]" if claim["supported"] >= 0.5 else "[red]SEM BASE[/red]"
+        rprint(f"  fato {mark} ({claim['supported']:.2f}): {claim['text']}")
     table = Table("etapa", "pergunta", "tipo", "resposta", "conf", "calibrado", "ms")
     for d in runner.store.list_decisions(item_id):
         answer = d["answer"]
@@ -125,7 +128,13 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
                 target_precision: float = typer.Option(0.95, help="precisão alvo dos limiares"),
                 stage: str = typer.Option("triage", help="triage | gate | verify | all"),
                 gate_labels: str = typer.Option("data/samples/gate_labeled.jsonl"),
-                verify_labels: str = typer.Option("data/samples/verify_labeled.jsonl")) -> None:
+                verify_labels: str = typer.Option("data/samples/verify_labeled.jsonl"),
+                record: str = typer.Option(None, help="grava as respostas do LLM neste cassete JSON"),
+                replay: str = typer.Option(None, help="responde só pelo cassete (sem rede nem chave)"),
+                min_triage: float = typer.Option(None, help="falha se a acurácia da categoria ficar abaixo"),
+                min_gate: float = typer.Option(None, help="falha se alguma pergunta do gate ficar abaixo"),
+                min_verify: float = typer.Option(None, help="mínimo por pergunta da verificação")
+                ) -> None:
     """Avaliação em sombra contra rótulos humanos: triagem, gate e verificação."""
     load_dotenv()
     from .eval_shadow import load_dataset, load_jsonl, run_gate_shadow, run_shadow, run_verify_shadow
@@ -133,6 +142,7 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
     from .jev.client import RealJevClient
     from .jev.emulated import EmulatedJevClient
     from .llm import build_llm
+    from .replay import ReplayChatModel
     from .tenant import load_tenant
 
     settings = get_settings()
@@ -143,17 +153,35 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
         clients.append(("jev-real", RealJevClient(settings.typesafe_api_key or "", settings.jev_model,
                                                   settings.jev_base_url, settings.jev_timeout_s)))
     if mode in {"emulated", "both"} or (mode == "configured" and settings.jev_mode == "emulated"):
-        clients.append((f"emulado:{settings.llm_model}", EmulatedJevClient(build_llm(settings))))
+        if replay:
+            llm, label_llm = ReplayChatModel(cassette_path=replay, mode="replay"), f"replay:{replay}"
+        elif record:
+            llm = ReplayChatModel(cassette_path=record, mode="record", inner=build_llm(settings))
+            label_llm = f"emulado:{settings.llm_model} (gravando)"
+        else:
+            llm, label_llm = build_llm(settings), f"emulado:{settings.llm_model}"
+        clients.append((label_llm, EmulatedJevClient(llm)))
 
+    failures: list[str] = []
     for label_, client in clients:
         if stage in {"gate", "all"}:
-            _print_stage(run_gate_shadow(client, load_jsonl(gate_labels), settings.jev_anonymize), label_)
+            gate_result = run_gate_shadow(client, load_jsonl(gate_labels), settings.jev_anonymize)
+            _print_stage(gate_result, label_)
+            if min_gate is not None:
+                failures += [f"gate/{k} {m['accuracy']:.0%} < {min_gate:.0%}"
+                             for k, m in gate_result.metrics.items() if m.get("accuracy", 1) < min_gate]
         if stage in {"verify", "all"}:
-            _print_stage(run_verify_shadow(client, load_jsonl(verify_labels), settings.jev_anonymize, tenant),
-                         label_)
+            verify_result = run_verify_shadow(client, load_jsonl(verify_labels), settings.jev_anonymize,
+                                              tenant)
+            _print_stage(verify_result, label_)
+            if min_verify is not None:
+                failures += [f"verify/{k} {m['accuracy']:.0%} < {min_verify:.0%}"
+                             for k, m in verify_result.metrics.items() if m.get("accuracy", 1) < min_verify]
         if stage not in {"triage", "all"}:
             continue
         result = run_shadow(client, dataset, label_, anonymize=settings.jev_anonymize, tenant=tenant)
+        if min_triage is not None and result.category_accuracy < min_triage:
+            failures.append(f"triage/categoria {result.category_accuracy:.0%} < {min_triage:.0%}")
         rprint(f"\n[bold]{label_}[/bold]  triagem n={result.n}")
         rprint(f"  categoria: {result.category_accuracy:.0%}  ECE={result.ece:.3f}")
         rprint(f"  urgência (±1): {result.urgency_accuracy:.0%}")
@@ -173,6 +201,9 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
                 rprint(f"  {category}: {threshold}")
             usable = {k: v for k, v in suggested.items() if v is not None}
             rprint("\nPara o .env:\nCONFIDENCE_AUTO_BY_CATEGORY=" + json.dumps(usable, ensure_ascii=False))
+    if failures:
+        rprint("[red]Abaixo do mínimo:[/red] " + "; ".join(failures))
+        raise typer.Exit(code=1)
 
 
 def _print_stage(result, label_: str) -> None:
@@ -293,6 +324,70 @@ def costs(item_id: str = typer.Option(None, help="restringe a um item")) -> None
                f"em vez de US$ {report.emulated_cost_usd:.4f} "
                f"({report.emulated_cost_usd / max(report.what_if_real_jev_usd, 1e-9):.0f}x mais barato, "
                "saída grátis; latência de 70 a 500 ms segundo a TypeSafe)")
+
+
+@app.command()
+def metrics(window: int = typer.Option(60, help="janela em minutos"),
+            as_json: bool = typer.Option(False, "--json"),
+            prometheus: bool = typer.Option(False, help="saída no formato de exposição do Prometheus"),
+            push_cloudwatch: bool = typer.Option(False, help="envia ao CloudWatch (extra 'aws')")) -> None:
+    """Métricas da fila: profundidade, erros, aprovações pendentes, latência e custo na janela."""
+    from .metrics import alerts, collect_metrics, to_prometheus
+    from .metrics import push_cloudwatch as _push
+
+    runner = _runner()
+    data = collect_metrics(runner.store, runner.settings, window)
+    if push_cloudwatch:
+        n = _push(data, runner.settings.metrics_namespace, runner.settings.aws_region)
+        rprint(f"{n} métricas enviadas ao CloudWatch ({runner.settings.metrics_namespace})")
+        return
+    if prometheus:
+        print(to_prometheus(data), end="")
+        return
+    if as_json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return
+    rprint(f"fila: {data['queue_depth']}  por status: {data['by_status']}")
+    rprint(f"últimos {window} min: processados {data['processed']}, erros {data['errors']} "
+           f"({data['error_rate']:.0%}), escalados {data['escalated']} ({data['escalation_rate']:.0%})")
+    rprint(f"aprovações pendentes: {data['pending_approvals']} "
+           f"(mais antiga há {data['oldest_pending_approval_min']:.0f} min)")
+    for kind, lat in data["latency"].items():
+        rprint(f"{kind}: {lat['count']} chamadas, média {lat['mean_ms']:.0f} ms, p95 {lat['p95_ms']:.0f} ms")
+    rprint(f"custo na janela: US$ {data['cost_usd']:.4f} (por item US$ {data['cost_per_item_usd']:.4f})")
+    for text in alerts(data, runner.settings):
+        rprint(f"[red]ALERTA[/red] {text}")
+
+
+@app.command("metrics-server")
+def metrics_server(port: int = typer.Option(9100), window: int = typer.Option(60)) -> None:
+    """Servidor HTTP com /metrics (Prometheus) e /healthz."""
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from .metrics import collect_metrics, to_prometheus
+
+    runner = _runner()
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            if self.path == "/healthz":
+                body = b"ok"
+            elif self.path == "/metrics":
+                body = to_prometheus(collect_metrics(runner.store, runner.settings, window)).encode()
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_):
+            return
+
+    rprint(f"métricas em http://0.0.0.0:{port}/metrics")
+    HTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 
 @app.command()

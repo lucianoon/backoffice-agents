@@ -13,6 +13,7 @@ class AgentState(TypedDict, total=False):
     tier: str                          # auto | review | escalate
     messages: list[dict[str, Any]]     # mensagens LangChain serializadas
     draft_reply: str
+    claims: list[str]                  # fatos que o rascunho afirma (verificados um a um)
     verification: dict[str, Any]
     pending_action: dict[str, Any] | None   # tool call aguardando aprovação
     approval: dict[str, Any] | None         # decisão humana injetada na retomada

@@ -35,3 +35,7 @@ jobs:
       - run: uv run pytest -q
       - name: contratos dos adapters (mocks)
         run: uv run backoffice contracts --allow-writes
+      - name: regressao da avaliacao (replay do cassete, sem rede)
+        run: >-
+          uv run backoffice eval-shadow --mode emulated --stage all
+          --replay data/cassettes/eval.json --min-triage 0.9 --min-gate 0.7 --min-verify 0.7

@@ -24,9 +24,11 @@ from ..adapters.telegram import Button, MockTelegramAdapter
 from ..agent_loop import execute_tool, run_agent
 from ..attachments import extract_all
 from ..budget import fit_state
+from ..claims import split_reply
 from ..config import Settings
 from ..jev import JevClient, JevResponse
 from ..knowledge import KnowledgeBase
+from ..obs import log_event
 from ..policy import GateOutcome, RiskLevel, Tier, gate_outcome, tier_for
 from ..privacy import Pseudonymizer
 from ..storage import Store
@@ -210,6 +212,10 @@ class Nodes:
             return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated",
                                      "notes": notes,
                     "escalation_reason": f"triagem: possível prompt injection (p={injection:.2f})"}
+        log_event("triage", item_id=state["item_id"], category=category.choice,
+                  confidence=round(category.confidence, 2), tier=str(tier), urgency=round(urgency.score, 1),
+                  needs_human=round(needs_human, 2), injection=round(injection, 2),
+                  calibrated=response.calibrated)
         if category.choice == "spam_irrelevante" and tier == Tier.AUTO:
             return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "discarded",
                                      "notes": notes}
@@ -244,8 +250,12 @@ class Nodes:
             update["status"] = "escalated"
             update["escalation_reason"] = registry.context.escalation_reason or "limite de iterações"
         else:
-            update["draft_reply"] = turn.final_text or ""
+            reply, claims = split_reply(turn.final_text or "")
+            update["draft_reply"] = reply
+            update["claims"] = claims
             update["status"] = "drafted"
+        log_event("act", item_id=state["item_id"], status=update["status"],
+                  pending_tool=(turn.pending_call or {}).get("name"), claims=len(update.get("claims", [])))
         return update
 
     def resume_tool(self, state: AgentState) -> dict[str, Any]:
@@ -272,12 +282,13 @@ class Nodes:
     def verify(self, state: AgentState) -> dict[str, Any]:
         messages = messages_from_dict(state["messages"])
         draft = state.get("draft_reply", "")
+        claims = list(state.get("claims") or [])
         try:
             response, fallback_note = self._ask(
                 state, "verify",
                 decisions.verify_state(state["email"], draft, self._facts(messages),
-                                       state.get("thread"), state.get("attachments")),
-                decisions.verify_questions(self.tenant))
+                                       state.get("thread"), state.get("attachments"), claims),
+                decisions.verify_questions(self.tenant) | decisions.claim_questions(claims))
         except Exception as exc:  # sem verificação não se envia nada: humano revisa o rascunho
             return {"status": "escalated",
                     "escalation_reason": f"verificação indisponível ({exc.__class__.__name__})",
@@ -285,14 +296,22 @@ class Nodes:
         resolves = response.noul("resolves")
         quality = response.score("quality")
         unsupported = response.noul("unsupported_claims")
+        claim_results = [{"text": text, "supported": round(response.noul(f"claim_{i}"), 3)}
+                         for i, text in enumerate(claims)]
+        unsupported_claims = [c for c in claim_results if c["supported"] < 0.5]
         passed = (resolves >= self.settings.verify_min_resolves
-                  and quality.score >= self.settings.verify_min_quality and unsupported < 0.5)
+                  and quality.score >= self.settings.verify_min_quality and unsupported < 0.5
+                  and not unsupported_claims)
         verification = {"resolves": round(resolves, 3), "quality": round(quality.score, 2),
-                        "unsupported_claims": round(unsupported, 3), "passed": passed,
-                        "calibrated": response.calibrated}
+                        "unsupported_claims": round(unsupported, 3), "claims": claim_results,
+                        "passed": passed, "calibrated": response.calibrated}
+        claim_note = (f", fatos sem base {len(unsupported_claims)}/{len(claims)}" if claims else "")
         notes = state.get("notes", []) + ([fallback_note] if fallback_note else []) + [
             (f"verificação: resolve {resolves:.2f}, qualidade {quality.score:.1f}, "
-             f"afirmações sem base {unsupported:.2f} -> {'ok' if passed else 'reprovada'}")]
+             f"afirmações sem base {unsupported:.2f}{claim_note} -> {'ok' if passed else 'reprovada'}")]
+        log_event("verify", item_id=state["item_id"], passed=passed, resolves=round(resolves, 2),
+                  quality=round(quality.score, 1), unsupported=round(unsupported, 2),
+                  unsupported_claims=len(unsupported_claims))
         update: dict[str, Any] = {"verification": verification, "notes": notes}
         if passed:
             update["status"] = "verified"
@@ -300,8 +319,13 @@ class Nodes:
         if state.get("regenerations", 0) < self.settings.max_regenerations:
             feedback = ("A resposta anterior foi reprovada na verificação. "
                         f"Ela resolve o pedido? p={resolves:.2f}. Qualidade {quality.score:.1f}/5. "
-                        f"Contém afirmações sem base nos dados? p={unsupported:.2f}. "
-                        "Reescreva usando somente os dados obtidos pelas ferramentas.")
+                        f"Contém afirmações sem base nos dados? p={unsupported:.2f}. ")
+            if unsupported_claims:
+                feedback += ("Estes fatos NÃO têm base nos dados obtidos; remova-os ou corrija-os: "
+                             + "; ".join(f"'{c['text']}' (p={c['supported']:.2f})"
+                                         for c in unsupported_claims) + ". ")
+            feedback += "Reescreva usando somente os dados obtidos pelas ferramentas."
+
             messages.append(HumanMessage(content=feedback))
             update.update({"messages": messages_to_dict(messages), "draft_reply": "",
                            "regenerations": state.get("regenerations", 0) + 1, "status": "regenerate"})
@@ -329,6 +353,8 @@ class Nodes:
                     f"Assunto: {email.get('subject')}\n\n--- Rascunho ---\n{state.get('draft_reply', '')}")
 
         approval_id = self.store.create_approval(state["item_id"], kind, action, None)
+        log_event("approval_requested", item_id=state["item_id"], approval_id=approval_id, kind=kind,
+                  tool=action.get("tool"))
         buttons = [Button(text="✅ Aprovar", callback_data=f"approve:{approval_id}"),
                    Button(text="❌ Rejeitar", callback_data=f"reject:{approval_id}")]
         message_id = self.adapters.telegram.send_message(text, buttons)
@@ -361,6 +387,8 @@ class Nodes:
             self.adapters.email.forward(original, fwd["to"], fwd["note"])
         sent_at = datetime.now(UTC).isoformat(timespec="seconds")
 
+        log_event("sent", item_id=state["item_id"], tier=state.get("tier"),
+                  category=state.get("triage", {}).get("category"))
         update = {"status": "sent", "approval": None, "sent_at": sent_at,
                   "sent_message_id": sent_message_id or "",
                   "notes": state.get("notes", []) + ["e-mail enviado"]}
@@ -374,6 +402,7 @@ class Nodes:
     def escalate(self, state: AgentState) -> dict[str, Any]:
         email = state["email"]
         reason = state.get("escalation_reason") or "revisão humana"
+        log_event("escalated", item_id=state["item_id"], reason=reason)
         category = state.get("triage", {}).get("category")
         self.adapters.telegram.send_message(
             f"🙋 Escalado para humano — item {state['item_id']}\n"

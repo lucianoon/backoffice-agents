@@ -91,14 +91,30 @@ def verify_questions(tenant: Tenant | None = None) -> dict[str, Question]:
     }
 
 
+def claim_questions(claims: list[str]) -> dict[str, Question]:
+    """Uma pergunta sim/não por fato afirmado no rascunho; vão na mesma chamada da verificação."""
+    return {
+        f"claim_{i}": NoulQuestion(
+            instructions=f"Is claim `claim_{i}` in `claims` supported by `data_gathered` (tools, knowledge "
+                         "base, attachments or conversation history)?",
+            criteria={"true": "the data states it, or it follows directly from the data",
+                      "false": "the data does not mention it, contradicts it, or it is a promise the data "
+                               "does not authorize"})
+        for i in range(len(claims))
+    }
+
+
 def verify_state(email: dict[str, Any], draft: str, facts: list[dict[str, Any]],
                  thread: list[dict[str, Any]] | None = None,
-                 attachments: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                 attachments: list[dict[str, Any]] | None = None,
+                 claims: list[str] | None = None) -> dict[str, Any]:
     state: dict[str, Any] = {
         "customer_request": {"subject": email.get("subject", ""), "body": email.get("body", "")},
         "data_gathered": facts,
         "draft_reply": draft,
     }
+    if claims:
+        state["claims"] = {f"claim_{i}": text for i, text in enumerate(claims)}
     if thread:
         state["conversation_history"] = [
             {k: h.get(k) for k in ("date", "customer_message", "our_reply")} for h in thread]

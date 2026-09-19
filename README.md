@@ -61,6 +61,25 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
   `verify_labeled.jsonl` (rascunhos com rótulos de resolve, afirmações sem base e qualidade).
   `--stage all` roda as três decisões. Os conjuntos são sintéticos, com positivos e negativos.
 
+### Verificação por afirmação, regressão determinística e observabilidade
+
+- **Fatos verificados um a um**: o agente termina a resposta com uma linha `---FATOS---` e a lista
+  dos fatos que afirma (pedido, valores, datas, prazos, promessas). O cliente não vê a lista. Na
+  verificação, cada fato vira uma pergunta sim/não ao Jev na mesma chamada. Um fato sem base
+  reprova o rascunho e o feedback de regeneração nomeia exatamente qual, com a probabilidade.
+  `backoffice show` lista os fatos com o veredito.
+- **Cassete de replay**: `eval-shadow --record data/cassettes/eval.json` grava as respostas do
+  LLM (emulador) indexadas pelo hash das mensagens; `--replay` responde só pelo cassete, sem rede
+  nem chave. O CI roda a avaliação completa em replay com mínimos (`--min-triage`, `--min-gate`,
+  `--min-verify`) e falha se a lógica regredir. Mudou prompt, taxonomia ou dataset? O replay
+  falha com "sem gravação no cassete": grave de novo com `--record` e revise os números.
+- **Logs e métricas**: `LOG_FORMAT=json` emite um evento por linha (triagem, gate, aprovação,
+  envio, escalada, erro, alerta) com `item_id` e campos. `backoffice metrics` mostra profundidade
+  da fila, erros, escaladas, aprovações pendentes e sua idade, latência média e p95 por modelo e
+  custo na janela; `--prometheus` e `metrics-server` expõem no formato do Prometheus;
+  `--push-cloudwatch` publica no CloudWatch (extra `aws`). O worker avisa no Telegram, com
+  cooldown, quando uma aprovação envelhece, a fila passa do limite ou a taxa de erro sobe.
+
 ### Rotulagem, calibração e limiares
 
 - **Taxonomia** em `docs/TAXONOMIA.md`: a categoria é a ação operacional pedida; tom e ameaça vão
@@ -133,6 +152,8 @@ uv run backoffice eval-shadow --mode emulated --suggest-thresholds   # triagem x
 uv run backoffice eval-shadow --mode emulated --stage all            # triagem + gate + verificação
 uv run backoffice calibration                   # decisões com rótulo humano, por pergunta e modelo
 uv run backoffice costs                         # custo e latência por modelo, "e se" do Jev real
+uv run backoffice metrics                       # fila, erros, aprovações pendentes, latência, alertas
+uv run backoffice eval-shadow --mode emulated --stage all --replay data/cassettes/eval.json   # sem rede
 uv run backoffice labels export --out data/labels/lote1.jsonl        # lote para dois anotadores
 ```
 
@@ -178,6 +199,11 @@ src/backoffice_agents/
   contracts.py     suíte de contrato dos adapters (mocks e reais)
   budget.py        orçamento de tokens do estado enviado ao Jev
   tenant.py        configuração por cliente (tenants/*.toml)
+  claims.py        separa o texto ao cliente da lista de fatos afirmados
+  replay.py        gravação e replay das respostas do LLM (regressão no CI)
+  obs.py           logs estruturados
+  metrics.py       métricas da fila, Prometheus, CloudWatch e alertas
+data/cassettes/    cassete de replay da avaliação
   threads.py       ligação de e-mails à conversa e histórico para o agente
   knowledge.py     base de conhecimento com o Jev pontuando trechos
   attachments.py   texto de PDF, texto e imagens

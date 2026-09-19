@@ -84,6 +84,9 @@ dependencies = [
 anthropic = [
     { name = "langchain-anthropic" },
 ]
+aws = [
+    { name = "boto3" },
+]
 bedrock = [
     { name = "langchain-aws" },
 ]
@@ -109,6 +112,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.34" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "langchain", specifier = ">=0.3,<2" },
     { name = "langchain-anthropic", marker = "extra == 'anthropic'", specifier = ">=0.3" },
@@ -129,7 +133,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "typer", specifier = ">=0.12" },
 ]
-provides-extras = ["anthropic", "bedrock", "gemini", "ollama", "postgres", "langfuse"]
+provides-extras = ["anthropic", "bedrock", "gemini", "ollama", "postgres", "langfuse", "aws"]
 
 [package.metadata.requires-dev]
 dev = [

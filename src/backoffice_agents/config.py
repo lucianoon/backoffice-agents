@@ -80,6 +80,16 @@ class Settings(BaseSettings):
     # Configuração por cliente: taxonomia, níveis, prompt, assinatura (tenants/*.toml)
     tenant_file: str = "tenants/default.toml"
 
+    # Observabilidade
+    log_format: Literal["text", "json"] = "text"
+    log_level: str = "INFO"
+    metrics_namespace: str = "BackofficeAgents"      # CloudWatch (extra 'aws')
+    aws_region: str | None = None
+    alert_approval_max_age_min: float = 60.0         # aprovação pendente há mais que isso -> aviso
+    alert_queue_depth: int = 50
+    alert_error_rate: float = 0.2
+    alert_cooldown_min: float = 60.0                 # não repete o mesmo aviso antes disso
+
     # Persistência e fila. Postgres: postgresql+psycopg://user:pass@host:5432/backoffice
     db_url: str = "sqlite:///data/backoffice.db"
     samples_path: str = "data/samples/emails.json"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -14,6 +15,8 @@ from .graph.nodes import Nodes
 from .jev import JevClient, build_jev_client
 from .jev.emulated import EmulatedJevClient
 from .llm import build_llm
+from .metrics import alerts, collect_metrics
+from .obs import log_event, setup_logging
 from .storage import Store
 from .tenant import Tenant, load_tenant
 from .threads import resolve_thread
@@ -33,7 +36,9 @@ class Runner:
     tenant: Tenant | None = None
 
     def __post_init__(self) -> None:
+        setup_logging(self.settings.log_format, self.settings.log_level)
         configure_tracing(self.settings)
+        self._last_alerts: dict[str, datetime] = {}
         self.tenant = self.tenant or load_tenant(self.settings.tenant_file)
         self.graph = build_graph(Nodes(self.settings, self.llm, self.jev, self.adapters, self.store,
                                        jev_fallback=self.jev_fallback, tenant=self.tenant))
@@ -114,7 +119,25 @@ class Runner:
                 outcomes.append((approval["item_id"], self.resume_item(approval)["status"]))
             except Exception:
                 outcomes.append((approval["item_id"], self.store.get_item(approval["item_id"])["status"]))
+        self.check_alerts()
         return outcomes
+
+    def check_alerts(self) -> list[str]:
+        """Avisa o operador no Telegram sobre fila cheia, aprovacoes envelhecendo e taxa de erro."""
+        metrics = collect_metrics(self.store, self.settings)
+        now = datetime.now(UTC)
+        cooldown = timedelta(minutes=self.settings.alert_cooldown_min)
+        fired = []
+        for text in alerts(metrics, self.settings):
+            key = text.split(" (")[0]
+            last = self._last_alerts.get(key)
+            if last and now - last < cooldown:
+                continue
+            self._last_alerts[key] = now
+            self.adapters.telegram.send_message(f"Alerta: {text}")
+            log_event("alert", level=30, alert=text)
+            fired.append(text)
+        return fired
 
     def _recover_in_flight(self) -> list[tuple[str, str]]:
         """Itens que morreram no meio de um efeito externo não são repetidos: um humano confirma."""
@@ -151,10 +174,14 @@ class Runner:
             state["notes"] = state.get("notes", []) + [
                 f"erro (tentativa {attempts}/{self.settings.max_attempts}): {exc.__class__.__name__}: {exc}"]
             self.store.set_item_state(item_id, status, state)
+            log_event("item_error", level=40, item_id=item_id, status=status, attempts=attempts,
+                      error=f"{exc.__class__.__name__}: {exc}")
             if status == "failed":
                 self.adapters.telegram.send_message(
                     f"❌ Falhou após {attempts} tentativas — item {item_id}\n"
                     f"{state['email'].get('subject')}\n{exc.__class__.__name__}: {exc}")
             raise
         self.store.set_item_state(item_id, final.get("status", "unknown"), final)
+        log_event("item_done", item_id=item_id, status=final.get("status"), tier=final.get("tier"),
+                  resume=bool(state.get("approval")))
         return final
