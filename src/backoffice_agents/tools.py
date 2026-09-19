@@ -6,8 +6,9 @@ consultado pelo gate antes de qualquer execução.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -148,7 +149,8 @@ def build_tools(adapters: Adapters, context: ToolContext) -> ToolRegistry:
     specs: list[tuple[Callable, type[BaseModel], str, RiskLevel]] = [
         (crm_find_contact, _Email, "Busca o contato do cliente no CRM pelo e-mail.", RiskLevel.LOW),
         (crm_open_deals, _Email, "Lista oportunidades abertas do cliente no CRM.", RiskLevel.LOW),
-        (crm_log_interaction, _LogInteraction, "Registra no CRM um resumo desta interação.", RiskLevel.MEDIUM),
+        (crm_log_interaction, _LogInteraction, "Registra no CRM um resumo desta interação.",
+         RiskLevel.MEDIUM),
         (crm_create_deal, _CreateDeal, "Cria uma oportunidade comercial no CRM.", RiskLevel.HIGH),
         (erp_get_order, _OrderId, "Consulta um pedido no ERP pelo número.", RiskLevel.LOW),
         (erp_list_orders, _Email, "Lista os pedidos do cliente no ERP.", RiskLevel.LOW),

@@ -24,7 +24,7 @@ class ChoiceQuestion(BaseModel):
     criteria: dict[str, str | None]  # opção -> descrição (max 255 opções)
 
     @model_validator(mode="after")
-    def _check_options(self) -> "ChoiceQuestion":
+    def _check_options(self) -> ChoiceQuestion:
         if not 2 <= len(self.criteria) <= 255:
             raise ValueError("choice precisa de 2 a 255 opções")
         return self
@@ -36,7 +36,7 @@ class ScoreQuestion(BaseModel):
     criteria: list[str]  # níveis ordenados (2 a 10)
 
     @model_validator(mode="after")
-    def _check_levels(self) -> "ScoreQuestion":
+    def _check_levels(self) -> ScoreQuestion:
         if not 2 <= len(self.criteria) <= 10:
             raise ValueError("score precisa de 2 a 10 níveis")
         return self

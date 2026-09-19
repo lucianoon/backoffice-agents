@@ -10,7 +10,7 @@ from email.utils import parseaddr
 from pathlib import Path
 from typing import Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ..config import Settings
 

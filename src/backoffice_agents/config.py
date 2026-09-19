@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     jev_model: str = "jev-latest"
     jev_base_url: str = "https://api.typesafe.ai/v1/systemone"
     jev_timeout_s: float = 15.0
+    jev_anonymize: bool = True          # pseudonimiza o state antes de sair para o Jev
+    jev_fallback_emulated: bool = True  # com JEV_MODE=real, cai para o emulador se a API falhar
+    max_attempts: int = 3               # reprocessamentos de um item em 'error' antes de 'failed'
 
     # Política de confiança
     confidence_auto: float = 0.85

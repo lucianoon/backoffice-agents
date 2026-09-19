@@ -1,8 +1,7 @@
 """Ponta a ponta com mocks: LLM roteirizado + Jev falso + adapters mock."""
 
-from langchain_core.messages import AIMessage
-
 from conftest import ingest_only, tool_call
+from langchain_core.messages import AIMessage
 
 MARIANA = "email:em-001"   # status de pedido, cliente conhecida
 ANA_CANCEL = "email:em-004"

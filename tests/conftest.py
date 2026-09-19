@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 from langchain_core.language_models import BaseChatModel
@@ -48,7 +49,8 @@ class ScriptedLLM(BaseChatModel):
 
 
 def tool_call(name: str, args: dict[str, Any], call_id: str) -> AIMessage:
-    return AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": call_id, "type": "tool_call"}])
+    return AIMessage(content="",
+                     tool_calls=[{"name": name, "args": args, "id": call_id, "type": "tool_call"}])
 
 
 DEFAULTS: dict[str, Any] = {
@@ -69,10 +71,13 @@ class FakeJev:
 
     calibrated = True
 
-    def __init__(self, overrides: dict[str, Any] | None = None) -> None:
+    def __init__(self, overrides: dict[str, Any] | None = None, fail_first: int = 0) -> None:
         self.overrides = overrides or {}
         self.calls: list[dict[str, Question]] = []
+        self.states: list[Any] = []
         self.counts: dict[str, int] = {}
+        # chamadas (1-based) que levantam erro, simulando a API fora do ar
+        self.fail_calls: set[int] = set(range(1, fail_first + 1))
 
     def _value(self, key: str) -> Any:
         n = self.counts.get(key, 0)
@@ -82,6 +87,9 @@ class FakeJev:
 
     def ask(self, state, questions: dict[str, Question]) -> JevResponse:
         self.calls.append(questions)
+        self.states.append(state)
+        if len(self.calls) in self.fail_calls:
+            raise ConnectionError("jev fora do ar")
         answers = {}
         for key, question in questions.items():
             value = self._value(key)
@@ -89,8 +97,8 @@ class FakeJev:
                 answers[key] = NoulAnswer(noul=float(value))
             elif isinstance(question, ChoiceQuestion):
                 choice, confidence = value
-                probs = {opt: (confidence if opt == choice else (1 - confidence) / (len(question.criteria) - 1))
-                         for opt in question.criteria}
+                rest = (1 - confidence) / (len(question.criteria) - 1)
+                probs = {opt: (confidence if opt == choice else rest) for opt in question.criteria}
                 answers[key] = ChoiceAnswer(choice=choice, probabilities=probs, confidence=confidence)
             elif isinstance(question, ScoreQuestion):
                 answers[key] = ScoreAnswer(score=float(value), legend=list(question.criteria),
@@ -115,7 +123,9 @@ def settings(tmp_path: Path) -> Settings:
 
 @pytest.fixture
 def make_runner(settings: Settings):
-    def _make(script: list[AIMessage], jev_overrides: dict[str, Any] | None = None) -> Runner:
-        return Runner(settings=settings, llm=ScriptedLLM(script=script), jev=FakeJev(jev_overrides),
-                      adapters=build_adapters(settings), store=Store(settings.db_path))
+    def _make(script: list[AIMessage], jev_overrides: dict[str, Any] | None = None,
+              jev: FakeJev | None = None, jev_fallback: FakeJev | None = None) -> Runner:
+        return Runner(settings=settings, llm=ScriptedLLM(script=script), jev=jev or FakeJev(jev_overrides),
+                      adapters=build_adapters(settings), store=Store(settings.db_path),
+                      jev_fallback=jev_fallback)
     return _make

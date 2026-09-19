@@ -12,10 +12,11 @@ from .config import Settings
 from .graph import build_graph
 from .graph.nodes import Nodes
 from .jev import JevClient, build_jev_client
+from .jev.emulated import EmulatedJevClient
 from .llm import build_llm
 from .storage import Store
 
-TERMINAL = {"sent", "escalated", "discarded"}
+TERMINAL = {"sent", "escalated", "discarded", "failed"}
 
 
 @dataclass
@@ -25,16 +26,22 @@ class Runner:
     jev: JevClient
     adapters: Adapters
     store: Store
+    jev_fallback: JevClient | None = None
 
     def __post_init__(self) -> None:
-        self.graph = build_graph(Nodes(self.settings, self.llm, self.jev, self.adapters, self.store))
+        self.graph = build_graph(Nodes(self.settings, self.llm, self.jev, self.adapters, self.store,
+                                       jev_fallback=self.jev_fallback))
 
     @classmethod
     def from_settings(cls, settings: Settings, llm: BaseChatModel | None = None,
-                      adapters: Adapters | None = None) -> "Runner":
+                      adapters: Adapters | None = None) -> Runner:
         llm = llm or build_llm(settings)
+        fallback = None
+        if settings.jev_mode == "real" and settings.jev_fallback_emulated:
+            fallback = EmulatedJevClient(llm)
         return cls(settings=settings, llm=llm, jev=build_jev_client(settings, llm),
-                   adapters=adapters or build_adapters(settings), store=Store(settings.db_path))
+                   adapters=adapters or build_adapters(settings), store=Store(settings.db_path),
+                   jev_fallback=fallback)
 
     # ---- ingestão ----
     def ingest_emails(self) -> list[str]:
@@ -54,7 +61,8 @@ class Runner:
             raise KeyError(item_id)
         state: dict[str, Any] = {"item_id": item_id, "email": item["payload"], "messages": [],
                                  "regenerations": 0, "notes": [], "status": "processing",
-                                 "pending_action": None, "approval": None, "forwarded": []}
+                                 "pending_action": None, "approval": None, "forwarded": [],
+                                 "sent_at": None}
         self.store.set_item_state(item_id, "processing", state)
         return self._invoke(item_id, state)
 
@@ -65,26 +73,66 @@ class Runner:
         state = dict(item["state"])
         state["approval"] = {"id": approval["id"], "kind": approval["kind"],
                              "approved": approval["status"] == "approved"}
+        # marcador em disco: se morrer no meio, a retomada vira escalada, não repetição
+        self.store.set_approval_status(approval["id"], "applying")
         result = self._invoke(approval["item_id"], state)
         self.store.mark_approval_applied(approval["id"])
         return result
 
     def run_pending(self) -> list[tuple[str, str]]:
-        """Processa itens novos e retoma os que tiveram aprovação decidida. Devolve (item, status)."""
+        """Recupera itens em voo, processa novos e em erro, retoma aprovações. Devolve (item, status)."""
         outcomes: list[tuple[str, str]] = []
-        for item in self.store.list_items("new"):
-            outcomes.append((item["id"], self.process_item(item["id"])["status"]))
+        outcomes += self._recover_in_flight()
+        for item in self.store.list_items("new") + self.store.list_retryable(self.settings.max_attempts):
+            try:
+                outcomes.append((item["id"], self.process_item(item["id"])["status"]))
+            except Exception:
+                outcomes.append((item["id"], self.store.get_item(item["id"])["status"]))
         for approval in self.store.list_approvals("approved") + self.store.list_approvals("rejected"):
-            outcomes.append((approval["item_id"], self.resume_item(approval)["status"]))
+            try:
+                outcomes.append((approval["item_id"], self.resume_item(approval)["status"]))
+            except Exception:
+                outcomes.append((approval["item_id"], self.store.get_item(approval["item_id"])["status"]))
         return outcomes
+
+    def _recover_in_flight(self) -> list[tuple[str, str]]:
+        """Itens que morreram no meio de um efeito externo não são repetidos: um humano confirma."""
+        outcomes = []
+        for item in self.store.list_items("sending"):
+            outcomes.append((item["id"], self._escalate_ambiguous(
+                item, "processo interrompido durante o envio do e-mail; confirmar se a resposta saiu")))
+        for approval in self.store.list_approvals("applying"):
+            item = self.store.get_item(approval["item_id"])
+            self.store.set_approval_status(approval["id"], "applied")
+            if item and item["status"] not in TERMINAL:
+                outcomes.append((item["id"], self._escalate_ambiguous(
+                    item, f"processo interrompido ao aplicar a aprovação #{approval['id']} "
+                          f"({approval['action'].get('tool') or 'envio'}); confirmar no sistema de destino")))
+        return outcomes
+
+    def _escalate_ambiguous(self, item: dict[str, Any], reason: str) -> str:
+        state = dict(item["state"] or {})
+        state.update({"status": "escalated", "escalation_reason": reason, "approval": None,
+                      "notes": state.get("notes", []) + [f"recuperação: {reason}"]})
+        self.store.set_item_state(item["id"], "escalated", state)
+        self.adapters.telegram.send_message(
+            f"⚠️ Recuperação — item {item['id']}\n{item['payload'].get('subject')}\n{reason}")
+        return "escalated"
 
     def _invoke(self, item_id: str, state: dict[str, Any]) -> dict[str, Any]:
         try:
             final = self.graph.invoke(state)
         except Exception as exc:
-            state["status"] = "error"
-            state["notes"] = state.get("notes", []) + [f"erro: {exc.__class__.__name__}: {exc}"]
-            self.store.set_item_state(item_id, "error", state)
+            attempts = self.store.increment_attempts(item_id)
+            status = "failed" if attempts >= self.settings.max_attempts else "error"
+            state["status"] = status
+            state["notes"] = state.get("notes", []) + [
+                f"erro (tentativa {attempts}/{self.settings.max_attempts}): {exc.__class__.__name__}: {exc}"]
+            self.store.set_item_state(item_id, status, state)
+            if status == "failed":
+                self.adapters.telegram.send_message(
+                    f"❌ Falhou após {attempts} tentativas — item {item_id}\n"
+                    f"{state['email'].get('subject')}\n{exc.__class__.__name__}: {exc}")
             raise
         self.store.set_item_state(item_id, final.get("status", "unknown"), final)
         return final

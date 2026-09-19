@@ -78,7 +78,12 @@ def show(item_id: str) -> None:
     table = Table("etapa", "pergunta", "tipo", "resposta", "conf", "calibrado", "ms")
     for d in runner.store.list_decisions(item_id):
         answer = d["answer"]
-        short = answer.get("choice") or (f"{answer['score']:.2f}" if "score" in answer else f"{answer['noul']:.2f}")
+        if "choice" in answer:
+            short = answer["choice"]
+        elif "score" in answer:
+            short = f"{answer['score']:.2f}"
+        else:
+            short = f"{answer['noul']:.2f}"
         table.add_row(d["stage"], d["question_id"], d["question_type"], str(short),
                       f"{d['confidence']:.2f}", "sim" if d["calibrated"] else "não", f"{d['latency_ms']:.0f}")
     rprint(table)
@@ -98,7 +103,8 @@ def approvals() -> None:
     """Lista aprovações pendentes."""
     runner = _runner()
     for a in runner.store.list_approvals("pending"):
-        rprint(f"#{a['id']} [{a['kind']}] item {a['item_id']}: {json.dumps(a['action'], ensure_ascii=False)[:120]}")
+        action = json.dumps(a["action"], ensure_ascii=False)[:120]
+        rprint(f"#{a['id']} [{a['kind']}] item {a['item_id']}: {action}")
 
 
 @app.command()
@@ -128,7 +134,7 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
         clients.append((f"emulado:{settings.llm_model}", EmulatedJevClient(build_llm(settings))))
 
     for label_, client in clients:
-        result = run_shadow(client, dataset, label_)
+        result = run_shadow(client, dataset, label_, anonymize=settings.jev_anonymize)
         rprint(f"\n[bold]{label_}[/bold]  n={result.n}")
         rprint(f"  categoria: {result.category_accuracy:.0%}  ECE={result.ece:.3f}")
         rprint(f"  urgência (±1): {result.urgency_accuracy:.0%}")

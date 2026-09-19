@@ -13,6 +13,7 @@ from typing import Any
 
 from . import decisions
 from .jev import JevClient
+from .privacy import Pseudonymizer
 
 
 @dataclass
@@ -77,10 +78,15 @@ def load_dataset(samples_path: str, labels_path: str) -> list[dict[str, Any]]:
     return dataset
 
 
-def run_shadow(client: JevClient, dataset: list[dict[str, Any]], model_label: str) -> ShadowResult:
+def run_shadow(client: JevClient, dataset: list[dict[str, Any]], model_label: str,
+               anonymize: bool = True) -> ShadowResult:
+    """Mesmo estado que a produção envia (pseudonimizado por padrão), para medir o que vai ao ar."""
     result = ShadowResult(model=model_label)
     for row in dataset:
-        response = client.ask(decisions.triage_state(row["email"], None), decisions.triage_questions())
+        state = decisions.triage_state(row["email"], None)
+        if anonymize:
+            state = Pseudonymizer([row["email"].get("from_name", "")]).apply(state)
+        response = client.ask(state, decisions.triage_questions())
         labels = row["labels"]
         category = response.choice("category")
         urgency = response.score("urgency").score

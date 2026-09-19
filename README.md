@@ -31,6 +31,19 @@ e-mail ──> triagem (Jev) ──> agente LLM + ferramentas ──> verificaç
 Toda resposta do Jev (probabilidade, confiança, latência, se é calibrada) fica na tabela `decisions`
 com espaço para o rótulo humano, que é o que permite medir calibração ao longo do piloto.
 
+### Proteções
+
+- **Pseudonimização** (`JEV_ANONYMIZE`): antes de sair para o Jev, e-mails, CPF, CNPJ, cartões,
+  telefones e os nomes conhecidos do cliente viram tokens estáveis por item (`<email_1>`, `<nome_1>`).
+  Números de pedido, nota e rastreio ficam. O e-mail enviado ao cliente não é afetado.
+- **Jev fora do ar**: na triagem e na verificação, cai para o emulador (`JEV_FALLBACK_EMULATED`) e
+  anota isso no item; sem fallback, o item escala para um humano. No gate, a ação cai para aprovação
+  humana. Erros de outra natureza deixam o item em `error`, reprocessado até `MAX_ATTEMPTS` e então
+  `failed`, com aviso no Telegram.
+- **Efeitos externos no máximo uma vez**: o envio grava um marcador `sending` em disco antes de chamar
+  o SMTP e `sent_at` depois; uma aprovação em aplicação fica `applying`. Se o processo morrer no meio,
+  a retomada não repete o efeito: o item vai para um humano confirmar no sistema de destino.
+
 ## Rodando
 
 Requer Python 3.12 e [uv](https://docs.astral.sh/uv/).
@@ -38,7 +51,7 @@ Requer Python 3.12 e [uv](https://docs.astral.sh/uv/).
 ```bash
 cp .env.example .env        # preencha LLM_* (ou exporte OPENAI_API_KEY)
 uv sync --python 3.12
-uv run pytest               # 18 testes, tudo com mocks e LLM roteirizado
+uv run pytest               # 31 testes, tudo com mocks e LLM roteirizado
 
 uv run backoffice demo      # ponta a ponta com os 6 e-mails de exemplo e mocks
 uv run backoffice items     # lista os itens e o status final
@@ -72,6 +85,7 @@ src/backoffice_agents/
   llm.py           factory de LLM
   jev/             modelos Noul/Choice/Score, cliente HTTP real, emulador
   policy.py        faixas de confiança, níveis de risco, decisão do gate
+  privacy.py       pseudonimização do estado enviado ao Jev
   decisions.py     as perguntas feitas ao Jev em cada etapa
   tools.py         ferramentas do agente com nível de risco declarado
   agent_loop.py    loop de tool calling com gate e parada para aprovação
@@ -96,8 +110,9 @@ src/backoffice_agents/
 ## Riscos conhecidos
 
 - **Dados nos EUA.** O Jev só existe como API hospedada nos EUA. Zero retenção de dados só no tier
-  enterprise. Anonimize o `state` antes do envio ou negocie o tier enterprise para dados sob LGPD.
+  enterprise. A pseudonimização cobre identificadores diretos; o corpo do e-mail ainda pode conter
+  dados sensíveis em texto livre, então negocie o tier enterprise para dados sob LGPD.
 - **Português.** A TypeSafe assume inglês como idioma principal. As instruções das perguntas estão em
   inglês e o estado em português; a fase 1 mede se isso basta.
-- **Early access.** A API teve instabilidade no lançamento. Se o Jev falhar no gate, a ação cai para
-  aprovação humana (fail-closed); na triagem, o item fica em `error` para reprocessar.
+- **Early access.** A API teve instabilidade no lançamento. Veja "Proteções" acima: fallback para o
+  emulador, escalada para humano e reprocessamento limitado.

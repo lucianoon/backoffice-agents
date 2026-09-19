@@ -21,7 +21,8 @@ def _decide(runner: Runner, approval_id: int, approved: bool, who: str) -> str:
         final = runner.resume_item(approval)
     except Exception as exc:
         return f"#{approval_id} {'aprovada' if approved else 'rejeitada'}, mas a retomada falhou: {exc}"
-    return f"#{approval_id} {'aprovada' if approved else 'rejeitada'} → item {approval['item_id']} agora {final['status']}"
+    verb = "aprovada" if approved else "rejeitada"
+    return f"#{approval_id} {verb} → item {approval['item_id']} agora {final['status']}"
 
 
 def handle_text(runner: Runner, text: str, who: str) -> str:

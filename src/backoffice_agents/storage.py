@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS approvals (
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 class Store:
@@ -56,6 +56,13 @@ class Store:
         self._conn = sqlite3.connect(db_path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(work_items)")}
+        if "attempts" not in columns:
+            self._conn.execute("ALTER TABLE work_items ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+            self._conn.commit()
 
     # ---- work items ----
     def upsert_item(self, item_id: str, source: str, status: str, payload: dict[str, Any],
@@ -75,6 +82,18 @@ class Store:
         self._conn.execute("UPDATE work_items SET status=?, state=?, updated_at=? WHERE id=?",
                            (status, json.dumps(state, ensure_ascii=False), _now(), item_id))
         self._conn.commit()
+
+    def increment_attempts(self, item_id: str) -> int:
+        self._conn.execute("UPDATE work_items SET attempts = attempts + 1 WHERE id=?", (item_id,))
+        self._conn.commit()
+        row = self._conn.execute("SELECT attempts FROM work_items WHERE id=?", (item_id,)).fetchone()
+        return int(row["attempts"]) if row else 0
+
+    def list_retryable(self, max_attempts: int) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM work_items WHERE status='error' AND attempts < ? ORDER BY created_at",
+            (max_attempts,)).fetchall()
+        return [_item(r) for r in rows]
 
     def get_item(self, item_id: str) -> dict[str, Any] | None:
         row = self._conn.execute("SELECT * FROM work_items WHERE id=?", (item_id,)).fetchone()
@@ -130,9 +149,13 @@ class Store:
                            (telegram_message_id, approval_id))
         self._conn.commit()
 
-    def mark_approval_applied(self, approval_id: int) -> None:
-        self._conn.execute("UPDATE approvals SET status='applied' WHERE id=?", (approval_id,))
+    def set_approval_status(self, approval_id: int, status: str) -> None:
+        """Transições pós-decisão: approved/rejected -> applying -> applied."""
+        self._conn.execute("UPDATE approvals SET status=? WHERE id=?", (status, approval_id))
         self._conn.commit()
+
+    def mark_approval_applied(self, approval_id: int) -> None:
+        self.set_approval_status(approval_id, "applied")
 
     def decide_approval(self, approval_id: int, approved: bool, decided_by: str) -> dict[str, Any] | None:
         self._conn.execute(

@@ -1,10 +1,10 @@
 import json
 
+from conftest import ScriptedLLM
 from langchain_core.messages import AIMessage
 
 from backoffice_agents.jev.emulated import EmulatedJevClient
 from backoffice_agents.jev.models import ChoiceQuestion, NoulQuestion, ScoreQuestion
-from conftest import ScriptedLLM
 
 
 def test_emulator_normalizes_and_flags_uncalibrated():

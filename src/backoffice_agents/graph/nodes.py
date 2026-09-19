@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -23,6 +24,7 @@ from ..agent_loop import execute_tool, run_agent
 from ..config import Settings
 from ..jev import JevClient, JevResponse
 from ..policy import GateOutcome, RiskLevel, Tier, gate_outcome, tier_for
+from ..privacy import Pseudonymizer
 from ..storage import Store
 from ..tools import ToolContext, ToolRegistry, build_tools
 from .state import AgentState
@@ -46,10 +48,11 @@ Regras:
 
 class Nodes:
     def __init__(self, settings: Settings, llm: BaseChatModel, jev: JevClient, adapters: Adapters,
-                 store: Store) -> None:
+                 store: Store, jev_fallback: JevClient | None = None) -> None:
         self.settings = settings
         self.llm = llm
         self.jev = jev
+        self.jev_fallback = jev_fallback
         self.adapters = adapters
         self.store = store
 
@@ -59,6 +62,23 @@ class Nodes:
             confidence = answer.confidence
             self.store.log_decision(item_id, stage, key, answer.type, answer.model_dump(),
                                     confidence, response.calibrated, response.model, response.latency_ms)
+
+    def _ask(self, state: AgentState, stage: str, payload: dict[str, Any], questions,
+             extra_names: list[str] = ()) -> tuple[JevResponse, str | None]:
+        """Pseudonimiza, consulta o Jev (com fallback) e registra. Devolve (resposta, nota)."""
+        if self.settings.jev_anonymize:
+            names = [state["email"].get("from_name", ""), *extra_names]
+            payload = Pseudonymizer(names).apply(payload)
+        note = None
+        try:
+            response = self.jev.ask(payload, questions)
+        except Exception as exc:
+            if self.jev_fallback is None:
+                raise
+            response = self.jev_fallback.ask(payload, questions)
+            note = f"{stage}: Jev indisponível ({exc.__class__.__name__}); usado fallback emulado"
+        self._log(state["item_id"], stage, response)
+        return response, note
 
     def _registry(self, state: AgentState) -> ToolRegistry:
         context = ToolContext(customer_email=state["email"]["from_addr"],
@@ -95,11 +115,11 @@ class Nodes:
             appropriate = args_complete = None
             if risk == RiskLevel.MEDIUM:
                 try:
-                    response = self.jev.ask(
+                    response, _ = self._ask(
+                        state, f"gate:{call['name']}",
                         decisions.gate_state(state["email"], state.get("triage", {}), call["name"],
                                              call["args"], self._facts(messages)),
                         decisions.gate_questions(call["name"]))
-                    self._log(state["item_id"], f"gate:{call['name']}", response)
                     appropriate = response.noul("appropriate")
                     args_complete = response.noul("args_complete")
                 except Exception as exc:  # Jev indisponível: fail-closed para aprovação humana
@@ -111,9 +131,14 @@ class Nodes:
     def triage(self, state: AgentState) -> dict[str, Any]:
         email = state["email"]
         contact = self.adapters.crm.find_contact_by_email(email["from_addr"])
-        response = self.jev.ask(decisions.triage_state(email, contact.model_dump() if contact else None),
-                                decisions.triage_questions())
-        self._log(state["item_id"], "triage", response)
+        try:
+            response, fallback_note = self._ask(
+                state, "triage", decisions.triage_state(email, contact.model_dump() if contact else None),
+                decisions.triage_questions(), extra_names=[contact.name] if contact else [])
+        except Exception as exc:  # sem Jev e sem fallback: humano assume, nada é perdido
+            return {"tier": Tier.ESCALATE, "status": "escalated",
+                    "escalation_reason": f"triagem indisponível ({exc.__class__.__name__}: {exc})",
+                    "notes": [f"triagem falhou: {exc.__class__.__name__}"]}
 
         category = response.choice("category")
         urgency = response.score("urgency")
@@ -127,8 +152,10 @@ class Nodes:
             "sensitive": round(sensitive, 3),
             "calibrated": response.calibrated,
         }
-        notes = [f"triagem: {category.choice} (conf {category.confidence:.2f}), "
-                 f"urgência {urgency.score:.1f}, humano {needs_human:.2f}"]
+        notes = [(f"triagem: {category.choice} (conf {category.confidence:.2f}), "
+                  f"urgência {urgency.score:.1f}, humano {needs_human:.2f}")]
+        if fallback_note:
+            notes.insert(0, fallback_note)
 
         if category.choice == "spam_irrelevante" and category.confidence >= self.settings.confidence_auto:
             return {"triage": triage, "tier": Tier.ESCALATE, "status": "discarded", "notes": notes}
@@ -188,9 +215,14 @@ class Nodes:
     def verify(self, state: AgentState) -> dict[str, Any]:
         messages = messages_from_dict(state["messages"])
         draft = state.get("draft_reply", "")
-        response = self.jev.ask(decisions.verify_state(state["email"], draft, self._facts(messages)),
-                                decisions.verify_questions())
-        self._log(state["item_id"], "verify", response)
+        try:
+            response, fallback_note = self._ask(
+                state, "verify", decisions.verify_state(state["email"], draft, self._facts(messages)),
+                decisions.verify_questions())
+        except Exception as exc:  # sem verificação não se envia nada: humano revisa o rascunho
+            return {"status": "escalated",
+                    "escalation_reason": f"verificação indisponível ({exc.__class__.__name__})",
+                    "notes": state.get("notes", []) + [f"verificação falhou: {exc.__class__.__name__}"]}
         resolves = response.noul("resolves")
         quality = response.score("quality")
         unsupported = response.noul("unsupported_claims")
@@ -199,9 +231,9 @@ class Nodes:
         verification = {"resolves": round(resolves, 3), "quality": round(quality.score, 2),
                         "unsupported_claims": round(unsupported, 3), "passed": passed,
                         "calibrated": response.calibrated}
-        notes = state.get("notes", []) + [
-            f"verificação: resolve {resolves:.2f}, qualidade {quality.score:.1f}, "
-            f"afirmações sem base {unsupported:.2f} -> {'ok' if passed else 'reprovada'}"]
+        notes = state.get("notes", []) + ([fallback_note] if fallback_note else []) + [
+            (f"verificação: resolve {resolves:.2f}, qualidade {quality.score:.1f}, "
+             f"afirmações sem base {unsupported:.2f} -> {'ok' if passed else 'reprovada'}")]
         update: dict[str, Any] = {"verification": verification, "notes": notes}
         if passed:
             update["status"] = "verified"
@@ -250,16 +282,31 @@ class Nodes:
                 "notes": state.get("notes", []) + [f"aprovação #{approval_id} ({kind}) solicitada"]}
 
     def send(self, state: AgentState) -> dict[str, Any]:
+        """Envio no máximo uma vez.
+
+        Grava o marcador `sending` em disco antes do efeito externo. Se o processo morrer entre o
+        envio e a gravação final, o item é encontrado em `sending` na retomada e vai para um humano
+        confirmar, em vez de reenviar.
+        """
+        if state.get("sent_at"):
+            return {"status": "sent", "approval": None,
+                    "notes": state.get("notes", []) + ["envio ignorado: já enviado em " + state["sent_at"]]}
         email_dict = state["email"]
         original = EmailMessage(**email_dict)
+        self.store.set_item_state(state["item_id"], "sending", {**dict(state), "status": "sending"})
+
         self.adapters.email.send_reply(original, state.get("draft_reply", ""))
         for fwd in state.get("forwarded", []):
             self.adapters.email.forward(original, fwd["to"], fwd["note"])
+        sent_at = datetime.now(UTC).isoformat(timespec="seconds")
+
+        update = {"status": "sent", "approval": None, "sent_at": sent_at,
+                  "notes": state.get("notes", []) + ["e-mail enviado"]}
+        self.store.set_item_state(state["item_id"], "sent", {**dict(state), **update})
         self.adapters.telegram.send_message(
             f"✅ Respondido — item {state['item_id']} | {email_dict.get('subject')} | "
             f"{state.get('triage', {}).get('category')} | tier {state.get('tier')}")
-        return {"status": "sent", "approval": None,
-                "notes": state.get("notes", []) + ["e-mail enviado"]}
+        return update
 
     def escalate(self, state: AgentState) -> dict[str, Any]:
         email = state["email"]

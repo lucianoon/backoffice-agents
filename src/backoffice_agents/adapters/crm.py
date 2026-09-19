@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import itertools
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class Contact(BaseModel):
@@ -70,6 +70,6 @@ class MockCrmAdapter:
 
     def log_interaction(self, contact_id: str, channel: str, summary: str) -> Interaction:
         item = Interaction(id=f"i-{next(self._ids)}", contact_id=contact_id, channel=channel,
-                           summary=summary, at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+                           summary=summary, at=datetime.now(UTC).isoformat(timespec="seconds"))
         self.interactions.append(item)
         return item

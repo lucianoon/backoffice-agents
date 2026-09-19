@@ -46,10 +46,9 @@ class EmulatedJevClient:
 
     def ask(self, state: str | dict[str, Any] | list[Any], questions: dict[str, Question]) -> JevResponse:
         started = time.perf_counter()
-        prompt = (
-            "STATE:\n" + (state if isinstance(state, str) else json.dumps(state, ensure_ascii=False, indent=2))
-            + "\n\nQUESTIONS:\n" + json.dumps(questions_payload(questions), ensure_ascii=False, indent=2)
-        )
+        state_text = state if isinstance(state, str) else json.dumps(state, ensure_ascii=False, indent=2)
+        questions_text = json.dumps(questions_payload(questions), ensure_ascii=False, indent=2)
+        prompt = f"STATE:\n{state_text}\n\nQUESTIONS:\n{questions_text}"
         raw = self._llm.invoke([SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=prompt)])
         data = _extract_json(raw.content if isinstance(raw.content, str) else str(raw.content))
         answers = {key: _to_answer(question, data.get(key, {})) for key, question in questions.items()}
@@ -64,7 +63,8 @@ class EmulatedJevClient:
 
 def _usage(message: Any) -> dict[str, int]:
     meta = getattr(message, "usage_metadata", None) or {}
-    return {"input_tokens": int(meta.get("input_tokens", 0)), "output_tokens": int(meta.get("output_tokens", 0))}
+    return {"input_tokens": int(meta.get("input_tokens", 0)),
+            "output_tokens": int(meta.get("output_tokens", 0))}
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -76,7 +76,7 @@ def _extract_json(text: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         match = re.search(r"\{.*\}", text, flags=re.S)
         if not match:
-            raise ValueError(f"emulador não devolveu JSON: {text[:200]!r}")
+            raise ValueError(f"emulador não devolveu JSON: {text[:200]!r}") from None
         return json.loads(match.group(0))
 
 

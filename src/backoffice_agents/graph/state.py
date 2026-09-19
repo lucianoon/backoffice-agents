@@ -14,6 +14,7 @@ class AgentState(TypedDict, total=False):
     pending_action: dict[str, Any] | None   # tool call aguardando aprovação
     approval: dict[str, Any] | None         # decisão humana injetada na retomada
     status: str
+    sent_at: str | None                # marcador de envio concluído (idempotência)
     regenerations: int
     notes: list[str]
     escalation_reason: str | None
