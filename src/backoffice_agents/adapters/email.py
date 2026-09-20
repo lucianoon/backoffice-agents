@@ -164,8 +164,8 @@ class ImapSmtpEmailAdapter:
         self._send(msg)
 
     def mark_processed(self, message_id: str) -> None:
-        # timeout no socket também (mesma proteção do _imap)
-        conn = imaplib.IMAP4_SSL(self._s.imap_host, self._s.imap_port, timeout=30)
+        # _imap já faz login+select e tem timeout no socket
+        conn = self._imap()
         try:
             conn.store(message_id.encode(), "+FLAGS", "\\Seen")
         finally:
