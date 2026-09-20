@@ -99,7 +99,8 @@ class ImapSmtpEmailAdapter:
         self._from = settings.email_from or settings.smtp_user
 
     def _imap(self) -> imaplib.IMAP4_SSL:
-        conn = imaplib.IMAP4_SSL(self._s.imap_host, self._s.imap_port)
+        # timeout no socket também: sem isso uma conexão presa segura o worker
+        conn = imaplib.IMAP4_SSL(self._s.imap_host, self._s.imap_port, timeout=30)
         conn.login(self._s.imap_user, self._s.imap_password)
         conn.select(self._s.imap_folder)
         return conn
@@ -163,7 +164,8 @@ class ImapSmtpEmailAdapter:
         self._send(msg)
 
     def mark_processed(self, message_id: str) -> None:
-        conn = self._imap()
+        # timeout no socket também (mesma proteção do _imap)
+        conn = imaplib.IMAP4_SSL(self._s.imap_host, self._s.imap_port, timeout=30)
         try:
             conn.store(message_id.encode(), "+FLAGS", "\\Seen")
         finally:

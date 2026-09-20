@@ -22,6 +22,7 @@ class Order(BaseModel):
     created_at: str
     tracking_code: str = ""
     expected_delivery: str = ""
+    delivered_at: str = ""
 
 
 class Invoice(BaseModel):
@@ -56,7 +57,7 @@ class MockErpAdapter:
         self.stock: dict[str, StockLevel] = {
             "SKU-1001": StockLevel(sku="SKU-1001", description="Cadeira ergonômica Pro", available=12,
                                    unit_price=1290.0),
-            "SKU-2002": StockLevel(sku="SKU-2002", description="Mesa regulável 140cm", available=0,
+            "SKU-2002": StockLevel(sku="SKU-2002", description="Mesa regulável 140cm", available=15,
                                    unit_price=2490.0),
             "SKU-3003": StockLevel(sku="SKU-3003", description="Luminária LED articulada", available=57,
                                    unit_price=189.9),
@@ -75,6 +76,20 @@ class MockErpAdapter:
                                  unit_price=189.9)],
                 total=189.9, created_at="2026-09-17",
             ),
+            # piloto: casos do lote de e-mails reais de teste (remetente = caixa do piloto)
+            "PED-79450": Order(
+                id="PED-79450", customer_email="prradical@gmail.com", status="em_separacao",
+                items=[OrderItem(sku="SKU-3003", description="Luminária LED articulada", quantity=1,
+                                 unit_price=189.9)],
+                total=189.9, created_at="2026-09-18",
+            ),
+            "PED-80011": Order(
+                id="PED-80011", customer_email="prradical@gmail.com", status="entregue",
+                items=[OrderItem(sku="SKU-3003", description="Luminária LED articulada branco",
+                                 quantity=1, unit_price=189.9)],
+                total=189.9, created_at="2026-09-10", tracking_code="BR987654321XX",
+                delivered_at="2026-09-15",
+            ),
         }
         self.invoices: dict[str, Invoice] = {
             "NF-55120": Invoice(id="NF-55120", order_id="PED-78231",
@@ -84,6 +99,16 @@ class MockErpAdapter:
             "NF-55301": Invoice(id="NF-55301", order_id="PED-78410", customer_email="ana.lima@gmail.com",
                                 amount=189.9, due_date="2026-09-20", status="aberta",
                                 boleto_url="https://erp.exemplo.com/boleto/NF-55301"),
+            # piloto: casos do lote de e-mails reais de teste
+            "NF-55201": Invoice(id="NF-55201", order_id="PED-79450", customer_email="prradical@gmail.com",
+                                amount=189.9, due_date="2026-09-20", status="aberta",
+                                boleto_url="https://erp.exemplo.com/boleto/NF-55201"),
+            "NF-55210": Invoice(id="NF-55210", order_id="PED-80011", customer_email="prradical@gmail.com",
+                                amount=189.9, due_date="2026-09-08", status="paga",
+                                boleto_url="https://erp.exemplo.com/boleto/NF-55210"),
+            "NF-55215": Invoice(id="NF-55215", order_id="PED-78231", customer_email="prradical@gmail.com",
+                                amount=5160.0, due_date="2026-09-25", status="paga",
+                                boleto_url="https://erp.exemplo.com/boleto/NF-55215"),
         }
         self._ids = itertools.count(90000)
 

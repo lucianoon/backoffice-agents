@@ -48,6 +48,9 @@ class MockCrmAdapter:
                              company="Construtora Pereira", segment="construção", since="2023-08-22"),
             "c-003": Contact(id="c-003", name="Ana Lima", email="ana.lima@gmail.com",
                              company="", segment="pessoa física", since="2025-11-02"),
+            # piloto: contato do lote de e-mails reais de teste
+            "c-010": Contact(id="c-010", name="Piloto Backoffice", email="prradical@gmail.com",
+                             company="", segment="pessoa física", since="2025-06-01"),
         }
         self.deals: dict[str, Deal] = {
             "d-100": Deal(id="d-100", contact_id="c-002", title="Renovação contrato anual", value=48000.0,
