@@ -54,7 +54,7 @@ def _judge(decision: dict[str, Any]) -> tuple[bool, float] | None:
 def calibration_report(decisions: list[dict[str, Any]]) -> list[CalibrationRow]:
     groups: dict[tuple[str, str, str], list[tuple[bool, float]]] = defaultdict(list)
     for d in decisions:
-        if d.get("human_label") is None:
+        if not str(d.get("human_label") or "").strip():
             continue
         judged = _judge(d)
         if judged is not None:
