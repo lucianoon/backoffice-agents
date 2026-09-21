@@ -21,8 +21,9 @@ e-mail ──> triagem (Jev) ──> agente LLM + ferramentas ──> verificaç
                └──> escalar    aprovação humana (Telegram)   revisão humana (Telegram)
 ```
 
-1. **Triagem** (uma chamada, quatro perguntas): categoria (Choice), urgência (Score 1-5), precisa de
-   humano (Noul), dado sensível (Noul). Spam com confiança alta é descartado; pedido de humano escala.
+1. **Triagem** (uma chamada, cinco perguntas): categoria (Choice), urgência (Score 1-5), precisa de
+   humano (Noul), dado sensível (Noul), prompt injection (Noul). Spam com confiança alta é descartado;
+   pedido de humano (`NEEDS_HUMAN_ESCALATE`) ou dado sensível (`SENSITIVE_ESCALATE`) escala.
 2. **Faixa de confiança** da categoria define o caminho: `auto` (>= 0,85) segue sozinho, `review`
    (>= 0,55) manda a resposta para um humano aprovar, abaixo disso escala.
 3. **Agente** (LLM com tool calling) consulta CRM e ERP e redige a resposta. Antes de **cada** ferramenta
@@ -75,8 +76,9 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
 - **Cassete de replay**: `eval-shadow --record data/cassettes/eval.json` grava as respostas do
   LLM (emulador) indexadas pelo hash das mensagens; `--replay` responde só pelo cassete, sem rede
   nem chave. O CI roda a avaliação completa em replay com mínimos (`--min-triage`, `--min-gate`,
-  `--min-verify`) e falha se a lógica regredir. Mudou prompt, taxonomia ou dataset? O replay
-  falha com "sem gravação no cassete": grave de novo com `--record` e revise os números.
+  `--min-verify`) e falha se a lógica regredir. Mudou prompt, taxonomia ou dataset? Regenere o
+  cassete com `PYTHONPATH=src uv run python scripts/rebuild_cassette.py` (respostas alinhadas
+  ao rótulo, sem LLM) ou grave de novo com `--record` se quiser o texto do emulador.
 - **Logs e métricas**: `LOG_FORMAT=json` emite um evento por linha (triagem, gate, aprovação,
   envio, escalada, erro, alerta) com `item_id` e campos. `backoffice metrics` mostra profundidade
   da fila, erros, escaladas, aprovações pendentes e sua idade, latência média e p95 por modelo e
@@ -141,6 +143,13 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
 - **Prompt injection**: a triagem pergunta ao Jev se o e-mail tenta instruir o assistente (ignorar
   regras, agir em nome de outro cliente, revelar dados). Acima de `INJECTION_ESCALATE` o item escala
   e o conteúdo nunca chega ao LLM. O prompt do agente também trata o e-mail como dado, não instrução.
+- **Identidade nas ferramentas**: CRM/ERP só operam no remetente do item. Pedido ou fatura de outro
+  cliente volta como não encontrado (sem vazar dados). Encaminhamento só para endereços em
+  `EMAIL_FORWARD_ALLOWLIST`.
+- **Dado sensível**: noul `sensitive` acima de `SENSITIVE_ESCALATE` escala sem passar pelo LLM.
+  `NEEDS_HUMAN_ESCALATE` é o limiar próprio de “precisa de humano”, separado de `CONFIDENCE_AUTO`.
+- **IMAP por UID**: ingestão e `mark_processed` usam UID SEARCH/FETCH/STORE, então compactar a caixa
+  não renumera `item_id` nem marca a mensagem errada.
 - **Operadores do Telegram**: só o chat em `TELEGRAM_CHAT_ID` é aceito e, com `TELEGRAM_OPERATORS`
   (ids de usuário separados por vírgula), só esses usuários aprovam, rejeitam ou rotulam. Quem
   decidiu fica registrado em `approvals.decided_by` e `decisions.human_label_by`.
@@ -173,6 +182,8 @@ uv run backoffice costs                         # custo e latência por modelo, 
 uv run backoffice metrics                       # fila, erros, aprovações pendentes, latência, alertas
 uv run backoffice eval-shadow --mode emulated --stage all --replay data/cassettes/eval.json   # sem rede
 uv run backoffice labels export --out data/labels/lote1.jsonl        # lote para dois anotadores
+uv run backoffice labels from-mailbox --limit 100                    # últimas N da caixa (mock ou IMAP) → lote
+uv run backoffice doctor                                             # confere Jev/IMAP/Telegram sem vazar segredo
 ```
 
 Operação contínua:
@@ -193,7 +204,8 @@ docker compose up                    # Postgres + 2 workers + poller do Telegram
 | `TRACING` | `none`, `langsmith`, `langfuse` | Langfuse exige `uv sync --extra langfuse` |
 | `EMAIL_ADAPTER` | `mock`, `imap` | IMAP/SMTP genérico (Gmail com senha de app, Outlook) |
 | `TELEGRAM_ADAPTER` | `mock`, `bot` | `bot` exige token e `TELEGRAM_CHAT_ID` autorizado |
-| `CRM_ADAPTER` / `ERP_ADAPTER` | `mock` | interfaces em `adapters/crm.py` e `adapters/erp.py`; implemente a classe e registre em `adapters/__init__.py` |
+| `CRM_ADAPTER` / `ERP_ADAPTER` | `mock` ou `modulo:Classe` | implemente o Protocol em `adapters/crm.py` / `erp.py`; o grafo não muda. Rode `backoffice contracts` |
+| `EMAIL_FORWARD_ALLOWLIST` | e-mails ou `@dominio.com` | vazio recusa encaminhamento automático |
 
 ## Layout
 
@@ -204,13 +216,14 @@ src/backoffice_agents/
   jev/             modelos Noul/Choice/Score, cliente HTTP real, emulador
   policy.py        faixas de confiança, níveis de risco, decisão do gate
   privacy.py       pseudonimização do estado enviado ao Jev
-  labeling.py      lote para anotadores, kappa de Cohen, consolidação
+  labeling.py      lote para anotadores, kappa de Cohen, consolidação, export da caixa
   calibration.py   acurácia e ECE das decisões com rótulo humano
   decisions.py     as perguntas feitas ao Jev em cada etapa
+  health.py        `backoffice doctor`: Jev, IMAP, Telegram, sem vazar segredo
   tools.py         ferramentas do agente com nível de risco declarado
   agent_loop.py    loop de tool calling com gate e parada para aprovação
   graph/           grafo LangGraph (triagem, ação, verificação, aprovação, envio)
-  adapters/        e-mail (mock, IMAP/SMTP), CRM (mock), ERP (mock), Telegram (mock, Bot API)
+  adapters/        e-mail (mock, IMAP/SMTP por UID), CRM/ERP (mock ou modulo:Classe), Telegram (mock, Bot API)
   storage.py       SQLAlchemy (SQLite/Postgres): fila de itens com reserva atômica, decisões, aprovações, chamadas a modelo
   costs.py         custo e latência por modelo, "e se" do Jev real
   tracing.py       LangSmith / Langfuse por item, spans do Jev

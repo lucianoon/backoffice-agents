@@ -55,6 +55,7 @@ class SentEmail(BaseModel):
 
 class EmailAdapter(Protocol):
     def fetch_unread(self) -> list[EmailMessage]: ...
+    def fetch_recent(self, limit: int) -> list[EmailMessage]: ...
     def send_reply(self, original: EmailMessage, body: str) -> str: ...   # devolve o Message-ID enviado
     def forward(self, original: EmailMessage, to: str, note: str) -> None: ...
     def mark_processed(self, message_id: str) -> None: ...
@@ -69,10 +70,17 @@ class MockEmailAdapter:
         self.sent: list[SentEmail] = []
 
     def fetch_unread(self) -> list[EmailMessage]:
+        return [m for m in self._all() if m.id not in self._processed]
+
+    def fetch_recent(self, limit: int) -> list[EmailMessage]:
+        messages = self._all()
+        return messages[-limit:] if limit else messages
+
+    def _all(self) -> list[EmailMessage]:
         if not self._path.exists():
             return []
         raw = json.loads(self._path.read_text(encoding="utf-8"))
-        return [EmailMessage(**item) for item in raw if item["id"] not in self._processed]
+        return [EmailMessage(**item) for item in raw]
 
     def send_reply(self, original: EmailMessage, body: str) -> str:
         message_id = f"<mock-{len(self.sent) + 1}@exemplo.com>"
@@ -106,16 +114,22 @@ class ImapSmtpEmailAdapter:
         return conn
 
     def fetch_unread(self) -> list[EmailMessage]:
+        return self._fetch("UNSEEN", self._s.imap_fetch_limit)
+
+    def fetch_recent(self, limit: int) -> list[EmailMessage]:
+        return self._fetch("ALL", limit)
+
+    def _fetch(self, criterion: str, limit: int) -> list[EmailMessage]:
         conn = self._imap()
         try:
-            _, data = conn.search(None, "UNSEEN")
-            # Os mais recentes primeiro, já limitados: uma caixa cheia não vira inundação.
-            uids = data[0].split()[-self._s.imap_fetch_limit:]
+            _, data = conn.uid("SEARCH", None, criterion)
+            # UID (não sequence number): sobrevive a compactação da caixa.
+            uids = parse_uid_search(data[0], limit)
             messages: list[EmailMessage] = []
             for uid in uids:
                 # BODY.PEEK não marca como lido
-                _, parts = conn.fetch(uid, "(BODY.PEEK[])")
-                msg = email_lib.message_from_bytes(parts[0][1])
+                _, parts = conn.uid("FETCH", uid, "(BODY.PEEK[])")
+                msg = email_lib.message_from_bytes(extract_fetch_body(parts))
                 name, addr = parseaddr(msg.get("From", ""))
                 messages.append(EmailMessage(
                     id=uid.decode(),
@@ -167,7 +181,7 @@ class ImapSmtpEmailAdapter:
         # _imap já faz login+select e tem timeout no socket
         conn = self._imap()
         try:
-            conn.store(message_id.encode(), "+FLAGS", "\\Seen")
+            conn.uid("STORE", message_id.encode(), "+FLAGS", "\\Seen")
         finally:
             conn.logout()
 
@@ -176,6 +190,21 @@ class ImapSmtpEmailAdapter:
             smtp.starttls()
             smtp.login(self._s.smtp_user, self._s.smtp_password)
             smtp.send_message(msg)
+
+
+def parse_uid_search(raw: bytes | None, limit: int) -> list[bytes]:
+    """UIDs mais recentes, já limitados. `SEARCH` devolve sequence; aqui o caller usa UID SEARCH."""
+    if not raw:
+        return []
+    uids = raw.split()
+    return uids[-limit:] if limit else uids
+
+
+def extract_fetch_body(parts) -> bytes:
+    for item in parts or []:
+        if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], (bytes, bytearray)):
+            return bytes(item[1])
+    raise ValueError("resposta IMAP sem corpo")
 
 
 def _decode(value: str) -> str:

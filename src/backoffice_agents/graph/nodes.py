@@ -35,7 +35,7 @@ from ..privacy import Pseudonymizer
 from ..storage import Store
 from ..tenant import Tenant, default_tenant
 from ..threads import format_history, thread_history
-from ..tools import ToolContext, ToolRegistry, build_tools
+from ..tools import ToolContext, ToolRegistry, build_tools, parse_allowlist
 from ..tracing import traced_jev_ask
 from .state import AgentState
 
@@ -114,7 +114,8 @@ class Nodes:
                               escalation_reason=state.get("escalation_reason"),
                               forwarded=list(state.get("forwarded", [])),
                               kb=self.kb,
-                              log_jev=lambda stage, response: self._record_jev(item_id, stage, response))
+                              log_jev=lambda stage, response: self._record_jev(item_id, stage, response),
+                              forward_allowlist=parse_allowlist(self.settings.email_forward_allowlist))
         return build_tools(self.adapters, context)
 
     @staticmethod
@@ -231,11 +232,15 @@ class Nodes:
         log_event("triage", item_id=state["item_id"], category=category.choice,
                   confidence=round(category.confidence, 2), tier=str(tier), urgency=round(urgency.score, 1),
                   needs_human=round(needs_human, 2), injection=round(injection, 2),
-                  calibrated=response.calibrated)
+                  sensitive=round(sensitive, 2), calibrated=response.calibrated)
+        if sensitive >= self.settings.sensitive_escalate:
+            return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated",
+                                     "notes": notes,
+                    "escalation_reason": f"triagem: dado sensível (p={sensitive:.2f})"}
         if category.choice == "spam_irrelevante" and tier == Tier.AUTO:
             return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "discarded",
                                      "notes": notes}
-        if needs_human >= self.settings.confidence_auto:
+        if needs_human >= self.settings.needs_human_escalate:
             return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated",
                                      "notes": notes,
                     "escalation_reason": "triagem: caso exige humano"}

@@ -305,6 +305,41 @@ def labels_merge(a: str, b: str, out: str = typer.Option(..., help="JSONL consol
     rprint(f"{len(merged)} consolidado(s) em {out}; {len(conflicted)} conflito(s) em {conflicts}")
 
 
+@labels_app.command("from-mailbox")
+def labels_from_mailbox(
+    emails_out: str = typer.Option("data/samples/mailbox.json", help="JSON no formato do eval"),
+    labels_out: str = typer.Option("data/labels/mailbox.jsonl", help="lote vazio para anotadores"),
+    limit: int = typer.Option(100, help="últimas N mensagens (lidas e não lidas)"),
+    unread_only: bool = typer.Option(False, help="só UNSEEN — o worker usa isso; o lote não"),
+) -> None:
+    """Lê a caixa configurada (mock ou IMAP) e gera o lote de rotulagem."""
+    from pathlib import Path
+
+    from .adapters import build_adapters
+    from .labeling import dump_mailbox
+
+    load_dotenv()
+    email = build_adapters(get_settings()).email
+    fetched = email.fetch_unread() if unread_only else email.fetch_recent(limit)
+    messages = [m.model_dump() for m in fetched]
+    n = dump_mailbox(messages, Path(emails_out), Path(labels_out))
+    rprint(f"{n} e-mail(s) em {emails_out} e lote em {labels_out}")
+
+
+@app.command()
+def doctor(ping_jev: bool = typer.Option(False, help="faz uma chamada mínima à API do Jev")) -> None:
+    """Confere .env (Jev, IMAP, Telegram) sem imprimir segredos."""
+    from .health import run_doctor
+
+    load_dotenv()
+    failed = 0
+    for check in run_doctor(get_settings(), ping_jev=ping_jev):
+        mark = "[green]ok[/green]" if check.ok else "[red]falha[/red]"
+        rprint(f"{mark}  {check.name}: {check.detail}")
+        failed += 0 if check.ok else 1
+    raise typer.Exit(code=1 if failed else 0)
+
+
 @app.command()
 def contracts(allow_writes: bool = typer.Option(False, help="executa também os checks de escrita"),
               known_email: str = typer.Option("mariana.souza@lojaazul.com.br"),

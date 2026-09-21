@@ -12,6 +12,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from backoffice_agents import decisions
 from backoffice_agents.jev.emulated import SYSTEM_PROMPT
+from backoffice_agents.jev.models import questions_payload
 from backoffice_agents.privacy import Pseudonymizer
 from backoffice_agents.replay import _key
 from backoffice_agents.tenant import default_tenant
@@ -60,7 +61,7 @@ def entry(answers: dict) -> dict:
 cassette = json.loads((ROOT / "data/cassettes/eval.json").read_text(encoding="utf-8"))
 
 def key_for(state: dict, questions: dict) -> str:
-    qp = {k: q.model_dump(exclude_none=True) for k, q in questions.items()}
+    qp = questions_payload(questions)
     state_text = json.dumps(state, ensure_ascii=False, indent=2)
     questions_text = json.dumps(qp, ensure_ascii=False, indent=2)
     prompt = f"STATE:\n{state_text}\n\nQUESTIONS:\n{questions_text}"
