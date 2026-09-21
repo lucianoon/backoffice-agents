@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: backoffice
-      POSTGRES_PASSWORD: backoffice
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: backoffice
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -12,28 +12,25 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-
   worker:
     build: .
     env_file: .env
     environment:
-      DB_URL: postgresql+psycopg://backoffice:backoffice@db:5432/backoffice
+      DB_URL: postgresql+psycopg://backoffice:${POSTGRES_PASSWORD}@db:5432/backoffice
     command: ["worker", "--watch", "--interval", "30"]
     depends_on:
       db:
         condition: service_healthy
     deploy:
-      replicas: 2   # a fila com reserva atômica permite mais de um worker
-
+      replicas: 2 # a fila com reserva atômica permite mais de um worker
   telegram:
     build: .
     env_file: .env
     environment:
-      DB_URL: postgresql+psycopg://backoffice:backoffice@db:5432/backoffice
+      DB_URL: postgresql+psycopg://backoffice:${POSTGRES_PASSWORD}@db:5432/backoffice
     command: ["telegram"]
     depends_on:
       db:
         condition: service_healthy
-
 volumes:
   pgdata:
