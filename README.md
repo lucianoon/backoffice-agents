@@ -8,6 +8,10 @@ tipadas (sim/não, escolha, nota) com probabilidades calibradas, em 70 a 500 ms,
 tokens de entrada. Enquanto a chave não chega (early access), o projeto roda com um **emulador** que
 usa o próprio LLM no mesmo formato, marcado como não calibrado.
 
+![Arquitetura do backoffice-agents: o LLM gera e raciocina, enquanto o JEV decide, roteia e verifica](docs/assets/jev-architecture.png)
+
+> **Ideia central:** o LLM produz a resposta e usa as ferramentas; o JEV funciona como uma camada independente de decisão, controlando triagem, gates de segurança e verificação antes do envio.
+
 ## Fluxo
 
 ```
