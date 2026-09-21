@@ -86,6 +86,25 @@ def test_needs_human_escalates_before_acting(make_runner):
     assert any("Escalado" in m["text"] for m in runner.adapters.telegram.sent)
 
 
+def test_needs_human_uses_own_threshold_not_confidence_auto(make_runner):
+    # 0.72 está abaixo de CONFIDENCE_AUTO (0.85) e acima de NEEDS_HUMAN_ESCALATE (0.70)
+    runner = make_runner([], jev_overrides={"category": ("status_pedido", 0.92), "needs_human": 0.72})
+    ingest_only(runner, MARIANA)
+    final = runner.process_item(MARIANA)
+    assert final["status"] == "escalated"
+    assert "exige humano" in final["escalation_reason"]
+    assert runner.llm.calls == 0
+
+
+def test_sensitive_data_escalates_before_acting(make_runner):
+    runner = make_runner([], jev_overrides={"category": ("status_pedido", 0.92), "sensitive": 0.81})
+    ingest_only(runner, MARIANA)
+    final = runner.process_item(MARIANA)
+    assert final["status"] == "escalated"
+    assert "dado sensível" in final["escalation_reason"]
+    assert runner.llm.calls == 0
+
+
 def test_failed_verification_regenerates_once(make_runner):
     runner = make_runner([
         AIMessage(content="Seu pedido chega amanhã com certeza."),      # inventa prazo

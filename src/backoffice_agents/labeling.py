@@ -114,3 +114,25 @@ def merge(labels_a: dict[str, dict[str, Any]], labels_b: dict[str, dict[str, Any
 def write_jsonl(rows: list[dict[str, Any]], out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+
+
+def _for_eval(message: dict[str, Any]) -> dict[str, Any]:
+    """Copia o e-mail sem payload binário de anexo — o lote de rótulo não precisa disso."""
+    keep = ("id", "from_addr", "from_name", "to", "subject", "body", "date",
+            "message_id", "in_reply_to", "references")
+    out = {key: message[key] for key in keep if key in message}
+    attachments = message.get("attachments") or []
+    if attachments:
+        out["attachments"] = [
+            {key: item[key] for key in ("filename", "content_type", "size") if key in item}
+            for item in attachments
+        ]
+    return out
+
+
+def dump_mailbox(messages: list[dict[str, Any]], emails_path: Path, labels_path: Path) -> int:
+    """Grava o JSON de e-mails (formato do eval) e o lote vazio para os anotadores."""
+    emails_path.parent.mkdir(parents=True, exist_ok=True)
+    cleaned = [_for_eval(message) for message in messages]
+    emails_path.write_text(json.dumps(cleaned, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return export_batch(cleaned, labels_path)

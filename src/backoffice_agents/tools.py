@@ -16,6 +16,9 @@ from pydantic import BaseModel, Field
 from .adapters import Adapters
 from .policy import RiskLevel
 
+FOREIGN_CUSTOMER = "ferramenta restrita ao cliente deste item"
+FOREIGN_RECORD = "pedido não encontrado ou não pertence a este cliente"
+
 
 @dataclass
 class ToolContext:
@@ -25,6 +28,25 @@ class ToolContext:
     forwarded: list[dict[str, str]] = field(default_factory=list)
     kb: Any = None                                  # KnowledgeBase (opcional)
     log_jev: Callable[[str, Any], None] | None = None  # registra as chamadas ao Jev feitas por tools
+    forward_allowlist: set[str] = field(default_factory=set)
+
+
+def parse_allowlist(raw: str) -> set[str]:
+    return {part.strip().lower() for part in (raw or "").split(",") if part.strip()}
+
+
+def forward_allowed(to: str, allowlist: set[str]) -> bool:
+    dest = (to or "").strip().lower()
+    if not dest or not allowlist:
+        return False
+    if dest in allowlist:
+        return True
+    domain = dest.rsplit("@", 1)[-1]
+    return domain in allowlist or f"@{domain}" in allowlist
+
+
+def _same_customer(left: str, right: str) -> bool:
+    return (left or "").strip().lower() == (right or "").strip().lower()
 
 
 @dataclass
@@ -99,53 +121,83 @@ def build_tools(adapters: Adapters, context: ToolContext) -> ToolRegistry:
             return [o.model_dump() for o in obj]
         return obj.model_dump()
 
+    def _deny_foreign_email(email: str) -> dict | None:
+        if not _same_customer(email, context.customer_email):
+            return {"ok": False, "error": FOREIGN_CUSTOMER}
+        return None
+
     def crm_find_contact(email: str) -> dict:
-        return _dump(crm.find_contact_by_email(email))
+        if denied := _deny_foreign_email(email):
+            return denied
+        return _dump(crm.find_contact_by_email(context.customer_email))
 
     def crm_open_deals(email: str) -> Any:
-        contact = crm.find_contact_by_email(email)
+        if denied := _deny_foreign_email(email):
+            return denied
+        contact = crm.find_contact_by_email(context.customer_email)
         return _dump(crm.open_deals(contact.id)) if contact else {"found": False}
 
     def crm_log_interaction(email: str, summary: str) -> dict:
-        contact = crm.find_contact_by_email(email)
+        if denied := _deny_foreign_email(email):
+            return denied
+        contact = crm.find_contact_by_email(context.customer_email)
         if not contact:
             return {"ok": False, "error": "contato não encontrado no CRM"}
         return _dump(crm.log_interaction(contact.id, "email", summary))
 
     def crm_create_deal(email: str, title: str, value: float) -> dict:
-        contact = crm.find_contact_by_email(email)
+        if denied := _deny_foreign_email(email):
+            return denied
+        contact = crm.find_contact_by_email(context.customer_email)
         if not contact:
             return {"ok": False, "error": "contato não encontrado no CRM"}
         return _dump(crm.create_deal(contact.id, title, value))
 
     def erp_get_order(order_id: str) -> dict:
-        return _dump(erp.get_order(order_id))
+        order = erp.get_order(order_id)
+        if order is None or not _same_customer(order.customer_email, context.customer_email):
+            return {"found": False}
+        return _dump(order)
 
     def erp_list_orders(email: str) -> Any:
-        return _dump(erp.list_orders(email))
+        if denied := _deny_foreign_email(email):
+            return denied
+        return _dump(erp.list_orders(context.customer_email))
 
     def erp_get_invoice(invoice_id: str) -> dict:
-        return _dump(erp.get_invoice(invoice_id))
+        invoice = erp.get_invoice(invoice_id)
+        if invoice is None or not _same_customer(invoice.customer_email, context.customer_email):
+            return {"found": False}
+        return _dump(invoice)
 
     def erp_list_invoices(email: str) -> Any:
-        return _dump(erp.list_invoices(email))
+        if denied := _deny_foreign_email(email):
+            return denied
+        return _dump(erp.list_invoices(context.customer_email))
 
     def erp_check_stock(sku: str) -> dict:
         return _dump(erp.check_stock(sku))
 
     def erp_create_order(email: str, sku: str, quantity: int) -> dict:
+        if denied := _deny_foreign_email(email):
+            return denied
         try:
-            return _dump(erp.create_order(email, sku, quantity))
+            return _dump(erp.create_order(context.customer_email, sku, quantity))
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
 
     def erp_cancel_order(order_id: str, reason: str) -> dict:
+        order = erp.get_order(order_id)
+        if order is None or not _same_customer(order.customer_email, context.customer_email):
+            return {"ok": False, "error": FOREIGN_RECORD}
         try:
             return _dump(erp.cancel_order(order_id, reason))
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
 
     def email_forward(to: str, note: str) -> dict:
+        if not forward_allowed(to, context.forward_allowlist):
+            return {"ok": False, "error": "encaminhamento fora da lista permitida; use escalate_to_human"}
         context.forwarded.append({"to": to, "note": note})
         return {"ok": True, "queued": True}
 
@@ -159,19 +211,23 @@ def build_tools(adapters: Adapters, context: ToolContext) -> ToolRegistry:
         return context.kb.to_tool_result(context.kb.search(query, on_jev=context.log_jev))
 
     specs: list[tuple[Callable, type[BaseModel], str, RiskLevel]] = [
-        (crm_find_contact, _Email, "Busca o contato do cliente no CRM pelo e-mail.", RiskLevel.LOW),
-        (crm_open_deals, _Email, "Lista oportunidades abertas do cliente no CRM.", RiskLevel.LOW),
+        (crm_find_contact, _Email, "Busca o contato deste cliente no CRM. O e-mail deve ser o do remetente.",
+         RiskLevel.LOW),
+        (crm_open_deals, _Email, "Lista oportunidades abertas deste cliente no CRM.", RiskLevel.LOW),
         (crm_log_interaction, _LogInteraction, "Registra no CRM um resumo desta interação.",
          RiskLevel.MEDIUM),
-        (crm_create_deal, _CreateDeal, "Cria uma oportunidade comercial no CRM.", RiskLevel.HIGH),
-        (erp_get_order, _OrderId, "Consulta um pedido no ERP pelo número.", RiskLevel.LOW),
-        (erp_list_orders, _Email, "Lista os pedidos do cliente no ERP.", RiskLevel.LOW),
-        (erp_get_invoice, _InvoiceId, "Consulta uma nota/fatura no ERP.", RiskLevel.LOW),
-        (erp_list_invoices, _Email, "Lista as faturas do cliente no ERP.", RiskLevel.LOW),
+        (crm_create_deal, _CreateDeal, "Cria uma oportunidade comercial no CRM deste cliente.",
+         RiskLevel.HIGH),
+        (erp_get_order, _OrderId, "Consulta um pedido deste cliente no ERP pelo número.", RiskLevel.LOW),
+        (erp_list_orders, _Email, "Lista os pedidos deste cliente no ERP.", RiskLevel.LOW),
+        (erp_get_invoice, _InvoiceId, "Consulta uma nota/fatura deste cliente no ERP.", RiskLevel.LOW),
+        (erp_list_invoices, _Email, "Lista as faturas deste cliente no ERP.", RiskLevel.LOW),
         (erp_check_stock, _Sku, "Consulta disponibilidade e preço de um produto.", RiskLevel.LOW),
         (erp_create_order, _CreateOrder, "Cria um pedido de venda no ERP.", RiskLevel.HIGH),
         (erp_cancel_order, _CancelOrder, "Cancela um pedido no ERP. Irreversível.", RiskLevel.CRITICAL),
-        (email_forward, _Forward, "Encaminha o e-mail do cliente para outro setor.", RiskLevel.MEDIUM),
+        (email_forward, _Forward,
+         "Encaminha o e-mail do cliente para um endereço da lista permitida da empresa.",
+         RiskLevel.MEDIUM),
         (escalate_to_human, _Escalate,
          "Passa o caso para um humano quando não é possível resolver com segurança.", RiskLevel.LOW),
         (kb_search, _Query,

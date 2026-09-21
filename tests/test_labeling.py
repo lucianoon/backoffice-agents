@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from backoffice_agents.labeling import agreement, cohen_kappa, export_batch, load_labels, merge
+from backoffice_agents.labeling import agreement, cohen_kappa, dump_mailbox, export_batch, load_labels, merge
 
 A = {
     "e1": {"category": "status_pedido", "urgency": 2, "needs_human": False},
@@ -51,3 +51,17 @@ def test_export_and_load_roundtrip(tmp_path: Path):
     row["labels"] = {"category": "outro", "urgency": "2", "needs_human": "sim"}
     out.write_text(json.dumps(row) + "\n", encoding="utf-8")
     assert load_labels(out)["x1"] == {"category": "outro", "urgency": 2, "needs_human": True}
+
+
+def test_dump_mailbox_writes_emails_and_empty_labels(tmp_path: Path):
+    emails = tmp_path / "box.json"
+    labels = tmp_path / "lote.jsonl"
+    n = dump_mailbox([{"id": "m1", "from_addr": "a@b.c", "subject": "s", "body": "oi",
+                       "attachments": [{"filename": "x.pdf", "data_b64": "AAAA", "size": 3}]}],
+                     emails, labels)
+    assert n == 1
+    saved = json.loads(emails.read_text())[0]
+    assert saved["id"] == "m1"
+    assert "data_b64" not in saved["attachments"][0]
+    assert saved["attachments"][0]["filename"] == "x.pdf"
+    assert json.loads(labels.read_text().splitlines()[0])["labels"]["category"] is None

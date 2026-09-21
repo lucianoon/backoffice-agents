@@ -1,4 +1,6 @@
 .env
+data/samples/mailbox.json
+data/labels/
 .venv/
 __pycache__/
 *.pyc

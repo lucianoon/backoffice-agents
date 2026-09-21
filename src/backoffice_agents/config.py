@@ -60,8 +60,9 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     email_from: str | None = None
 
-    crm_adapter: Literal["mock"] = "mock"
-    erp_adapter: Literal["mock"] = "mock"
+    crm_adapter: str = "mock"            # mock ou caminho modulo:Classe
+    erp_adapter: str = "mock"
+    email_forward_allowlist: str = ""    # e-mails ou domínios (@empresa.com), separados por vírgula
 
     telegram_adapter: Literal["mock", "bot"] = "mock"
     telegram_bot_token: str | None = None
@@ -72,6 +73,8 @@ class Settings(BaseSettings):
 
     # Prompt injection: probabilidade (Noul da triagem) acima da qual o item escala sem passar pelo LLM
     injection_escalate: float = 0.7
+    needs_human_escalate: float = 0.7   # noul needs_human; não reutiliza CONFIDENCE_AUTO
+    sensitive_escalate: float = 0.7     # noul sensitive: CPF/cartão/saúde → humano, sem passar pelo LLM
 
     # Base de conhecimento de políticas (arquivos .md); o Jev pontua a relevância dos trechos
     kb_dir: str = "data/kb"
