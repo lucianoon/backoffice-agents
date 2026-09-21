@@ -21,3 +21,18 @@ def test_doctor_fails_when_imap_is_chosen_without_credentials():
     checks = {c.name: c for c in run_doctor(settings)}
     assert checks["IMAP"].ok is False
     assert "faltam" in checks["IMAP"].detail
+
+
+def test_doctor_fails_when_imap_login_fails(monkeypatch):
+    settings = Settings(_env_file=None, email_adapter="imap",
+                        imap_user="u", imap_password="p", smtp_user="u", smtp_password="p")
+
+    class Boom:
+        def fetch_unread(self):
+            raise ConnectionError("down")
+
+    monkeypatch.setattr("backoffice_agents.health.build_adapters",
+                        lambda _settings: type("A", (), {"email": Boom()})())
+    checks = {c.name: c for c in run_doctor(settings)}
+    assert checks["IMAP"].ok is False
+    assert "falhou" in checks["IMAP"].detail

@@ -25,7 +25,7 @@ def run_doctor(settings: Settings, ping_jev: bool = False) -> list[Check]:
               "preenchida" if settings.typesafe_api_key else
               ("vazia (ok no emulador)" if settings.jev_mode != "real" else "vazia e JEV_MODE=real")),
         Check("EMAIL_ADAPTER", True, settings.email_adapter),
-        Check("IMAP", _imap_ready(settings), _imap_detail(settings)),
+        _imap_check(settings),
         Check("TELEGRAM", _telegram_ready(settings), _telegram_detail(settings)),
         Check("EMAIL_FORWARD_ALLOWLIST", True,
               settings.email_forward_allowlist or "vazia (encaminhamento automático recusado)"),
@@ -42,16 +42,16 @@ def _imap_ready(settings: Settings) -> bool:
                 and settings.smtp_user and settings.smtp_password)
 
 
-def _imap_detail(settings: Settings) -> str:
+def _imap_check(settings: Settings) -> Check:
     if settings.email_adapter != "imap":
-        return "mock — para caixa real: EMAIL_ADAPTER=imap e IMAP_*/SMTP_*"
+        return Check("IMAP", True, "mock — para caixa real: EMAIL_ADAPTER=imap e IMAP_*/SMTP_*")
     if not _imap_ready(settings):
-        return "imap escolhido, faltam IMAP_USER/PASSWORD ou SMTP_USER/PASSWORD"
+        return Check("IMAP", False, "imap escolhido, faltam IMAP_USER/PASSWORD ou SMTP_USER/PASSWORD")
     try:
         build_adapters(settings).email.fetch_unread()
     except Exception as exc:
-        return f"falhou o login/leitura: {exc.__class__.__name__}"
-    return f"ok ({settings.imap_host}/{settings.imap_folder})"
+        return Check("IMAP", False, f"falhou o login/leitura: {exc.__class__.__name__}")
+    return Check("IMAP", True, f"ok ({settings.imap_host}/{settings.imap_folder})")
 
 
 def _telegram_ready(settings: Settings) -> bool:

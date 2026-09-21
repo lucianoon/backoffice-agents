@@ -233,6 +233,10 @@ class Nodes:
                   confidence=round(category.confidence, 2), tier=str(tier), urgency=round(urgency.score, 1),
                   needs_human=round(needs_human, 2), injection=round(injection, 2),
                   sensitive=round(sensitive, 2), calibrated=response.calibrated)
+        if sensitive >= self.settings.sensitive_escalate:
+            return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated",
+                                     "notes": notes,
+                    "escalation_reason": f"triagem: dado sensível (p={sensitive:.2f})"}
         if category.choice == "spam_irrelevante" and tier == Tier.AUTO:
             return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "discarded",
                                      "notes": notes}
@@ -240,10 +244,6 @@ class Nodes:
             return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated",
                                      "notes": notes,
                     "escalation_reason": "triagem: caso exige humano"}
-        if sensitive >= self.settings.sensitive_escalate:
-            return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated",
-                                     "notes": notes,
-                    "escalation_reason": f"triagem: dado sensível (p={sensitive:.2f})"}
         if tier == Tier.ESCALATE:
             return context_update | {"triage": triage, "tier": tier, "status": "escalated",
                                      "notes": notes,

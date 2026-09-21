@@ -105,6 +105,15 @@ def test_sensitive_data_escalates_before_acting(make_runner):
     assert runner.llm.calls == 0
 
 
+def test_sensitive_spam_escalates_instead_of_discard(make_runner):
+    runner = make_runner([], jev_overrides={"category": ("spam_irrelevante", 0.97), "sensitive": 0.85})
+    runner.ingest_emails()
+    final = runner.process_item(SPAM)
+    assert final["status"] == "escalated"
+    assert "dado sensível" in final["escalation_reason"]
+    assert runner.llm.calls == 0
+
+
 def test_failed_verification_regenerates_once(make_runner):
     runner = make_runner([
         AIMessage(content="Seu pedido chega amanhã com certeza."),      # inventa prazo
