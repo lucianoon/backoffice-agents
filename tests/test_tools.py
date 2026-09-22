@@ -10,8 +10,8 @@ from backoffice_agents.tools import (
     parse_allowlist,
 )
 
-MARIANA = "mariana.souza@lojaazul.com.br"
-ANA = "ana.lima@gmail.com"
+MARIANA = "mariana.souza@example.invalid"
+ANA = "ana.lima@example.invalid"
 
 
 def _registry(email: str = MARIANA, allowlist: str = ""):

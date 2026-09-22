@@ -40,8 +40,10 @@ def test_search_keeps_only_passages_jev_marks_relevant():
 
 def test_search_query_is_pseudonymized_before_jev():
     jev = FakeJev()
-    KnowledgeBase(KB, jev, anonymize=True).search("prazo de troca para ana.lima@gmail.com CPF 123.456.789-01")
-    assert "ana.lima@gmail.com" not in jev.states[0]["customer_question"]
+    KnowledgeBase(KB, jev, anonymize=True).search(
+        "prazo de troca para ana.lima@example.invalid CPF 123.456.789-01"
+    )
+    assert "ana.lima@example.invalid" not in jev.states[0]["customer_question"]
     assert "<email_1>" in jev.states[0]["customer_question"]
 
 

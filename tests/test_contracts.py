@@ -3,7 +3,7 @@
 from backoffice_agents.adapters import build_adapters
 from backoffice_agents.contracts import check_all, check_erp
 
-KNOWN = dict(known_email="mariana.souza@lojaazul.com.br", known_order="PED-78231", known_sku="SKU-1001")
+KNOWN = dict(known_email="mariana.souza@example.invalid", known_order="PED-78231", known_sku="SKU-1001")
 
 
 def test_mocks_satisfy_contracts_including_writes(settings):
@@ -22,6 +22,6 @@ def test_read_only_mode_skips_writes(settings):
 def test_contract_catches_a_broken_adapter(settings):
     erp = build_adapters(settings).erp
     erp.get_order = lambda order_id: erp.orders["PED-78231"]      # devolve pedido para qualquer id
-    result = check_erp(erp, "PED-78231", "SKU-1001", "mariana.souza@lojaazul.com.br")
+    result = check_erp(erp, "PED-78231", "SKU-1001", "mariana.souza@example.invalid")
     assert not result.ok
     assert result.failed[0][0] == "pedido desconhecido -> None"
