@@ -9,7 +9,7 @@ MARIANA = "email:em-001"
 REPLY = "Olá, seu pedido PED-78231 foi enviado.\nEquipe de Atendimento"
 HAPPY = [
     tool_call("erp_get_order", {"order_id": "PED-78231"}, "c1"),
-    tool_call("crm_log_interaction", {"email": "mariana.souza@lojaazul.com.br", "summary": "ok"}, "c2"),
+    tool_call("crm_log_interaction", {"email": "mariana.souza@example.invalid", "summary": "ok"}, "c2"),
     AIMessage(content=REPLY),
 ]
 
@@ -21,12 +21,12 @@ def test_state_sent_to_jev_has_no_pii(make_runner):
 
     assert len(runner.jev.states) == 3  # triagem, gate, verificação
     dump = json.dumps(runner.jev.states, ensure_ascii=False)
-    assert "mariana.souza@lojaazul.com.br" not in dump
+    assert "mariana.souza@example.invalid" not in dump
     assert "Mariana" not in dump and "Souza" not in dump
     assert "<email_1>" in dump and "<nome_1>" in dump
     assert "PED-78231" in dump                      # identificadores de negócio continuam
     # o e-mail de fato enviado ao cliente não é afetado
-    assert runner.adapters.email.sent[0].to == "mariana.souza@lojaazul.com.br"
+    assert runner.adapters.email.sent[0].to == "mariana.souza@example.invalid"
 
 
 def test_anonymization_can_be_disabled(make_runner, settings):
@@ -34,7 +34,7 @@ def test_anonymization_can_be_disabled(make_runner, settings):
     runner = make_runner(HAPPY)
     ingest_only(runner, MARIANA)
     runner.process_item(MARIANA)
-    assert "mariana.souza@lojaazul.com.br" in json.dumps(runner.jev.states)
+    assert "mariana.souza@example.invalid" in json.dumps(runner.jev.states)
 
 
 def test_triage_uses_fallback_when_jev_is_down(make_runner):

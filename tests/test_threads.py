@@ -56,10 +56,10 @@ def test_reply_to_our_message_id_links_by_header(make_runner):
 def test_unrelated_email_opens_new_thread(make_runner):
     runner = make_runner([])
     ingest_only(runner, MARIANA)
-    other = EmailMessage(id="y1", from_addr="mariana.souza@lojaazul.com.br", subject="Outro assunto",
+    other = EmailMessage(id="y1", from_addr="mariana.souza@example.invalid", subject="Outro assunto",
                          body="?")
     assert resolve_thread(runner.store, other, "email:y1", 14) == "email:y1"
-    old = EmailMessage(id="y2", from_addr="mariana.souza@lojaazul.com.br",
+    old = EmailMessage(id="y2", from_addr="mariana.souza@example.invalid",
                        subject="Re: Pedido PED-78231 - previsão de entrega?", body="?")
     # janela negativa = nada é recente o bastante: fora da janela abre thread nova
     assert resolve_thread(runner.store, old, "email:y2", window_days=-1) == "email:y2"

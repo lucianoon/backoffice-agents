@@ -17,7 +17,7 @@ def test_crm_and_erp_load_from_import_path(settings):
     settings.erp_adapter = "backoffice_agents.adapters.erp:MockErpAdapter"
     adapters = build_adapters(settings)
     assert isinstance(adapters.crm, MockCrmAdapter)
-    assert adapters.crm.find_contact_by_email("mariana.souza@lojaazul.com.br") is not None
+    assert adapters.crm.find_contact_by_email("mariana.souza@example.invalid") is not None
     assert adapters.erp.get_order("PED-78231") is not None
 
 

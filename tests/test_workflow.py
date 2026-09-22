@@ -14,7 +14,7 @@ REPLY = "Olá Mariana, seu pedido PED-78231 foi enviado (rastreio BR123456789XX)
 def test_happy_path_reads_erp_logs_crm_and_sends(make_runner):
     runner = make_runner([
         tool_call("erp_get_order", {"order_id": "PED-78231"}, "c1"),
-        tool_call("crm_log_interaction", {"email": "mariana.souza@lojaazul.com.br",
+        tool_call("crm_log_interaction", {"email": "mariana.souza@example.invalid",
                                           "summary": "Cliente pediu rastreio; informado."}, "c2"),
         AIMessage(content=REPLY),
     ])
@@ -25,7 +25,7 @@ def test_happy_path_reads_erp_logs_crm_and_sends(make_runner):
     assert final["tier"] == "auto"
     assert final["verification"]["passed"] is True
     sent = runner.adapters.email.sent
-    assert len(sent) == 1 and sent[0].to == "mariana.souza@lojaazul.com.br" and sent[0].body == REPLY
+    assert len(sent) == 1 and sent[0].to == "mariana.souza@example.invalid" and sent[0].body == REPLY
     assert len(runner.adapters.crm.interactions) == 1
 
     stages = {d["stage"] for d in runner.store.list_decisions(MARIANA)}

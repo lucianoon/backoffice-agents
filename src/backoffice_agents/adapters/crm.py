@@ -42,11 +42,11 @@ class CrmAdapter(Protocol):
 class MockCrmAdapter:
     def __init__(self) -> None:
         self.contacts: dict[str, Contact] = {
-            "c-001": Contact(id="c-001", name="Mariana Souza", email="mariana.souza@lojaazul.com.br",
+            "c-001": Contact(id="c-001", name="Mariana Souza", email="mariana.souza@example.invalid",
                              company="Loja Azul Ltda", segment="varejo", since="2024-03-10"),
-            "c-002": Contact(id="c-002", name="Carlos Pereira", email="carlos@construtorapereira.com",
+            "c-002": Contact(id="c-002", name="Carlos Pereira", email="carlos@example.invalid",
                              company="Construtora Pereira", segment="construção", since="2023-08-22"),
-            "c-003": Contact(id="c-003", name="Ana Lima", email="ana.lima@gmail.com",
+            "c-003": Contact(id="c-003", name="Ana Lima", email="ana.lima@example.invalid",
                              company="", segment="pessoa física", since="2025-11-02"),
             # piloto: contato do lote de e-mails reais de teste
             "c-010": Contact(id="c-010", name="Piloto Backoffice", email="prradical@gmail.com",

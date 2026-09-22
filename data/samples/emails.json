@@ -1,1 +1,65 @@
-[  {    "id": "em-001",    "from_addr": "mariana.souza@example.invalid",    "from_name": "Mariana Souza",    "to": "atendimento@example.invalid",    "subject": "Pedido PED-78231 - previsão de entrega?",    "body": "Bom dia,\n\nFiz o pedido PED-78231 das 4 cadeiras na semana passada e ainda não recebi. Vocês têm o código de rastreio e a previsão de entrega?\n\nObrigada,\nMariana",    "date": "2026-09-18T09:12:00-03:00"  },  {    "id": "em-002",    "from_addr": "ana.lima@example.invalid",    "from_name": "Ana Lima",    "to": "atendimento@example.invalid",    "subject": "Segunda via do boleto",    "body": "Olá, perdi o boleto da minha compra da luminária. Podem me mandar a segunda via? Vence dia 20.\n\nAna",    "date": "2026-09-18T14:40:00-03:00"  },  {    "id": "em-003",    "from_addr": "carlos@example.invalid",    "from_name": "Carlos Pereira",    "to": "comercial@example.invalid",    "subject": "Cotação 20 mesas reguláveis",    "body": "Prezados,\n\nPrecisamos de 20 unidades da mesa regulável 140cm (SKU-2002) para um escritório novo. Qual o prazo e vocês fazem desconto para volume?\n\nAtt,\nCarlos Pereira\nConstrutora Pereira",    "date": "2026-09-18T16:05:00-03:00"  },  {    "id": "em-004",    "from_addr": "ana.lima@example.invalid",    "from_name": "Ana Lima",    "to": "atendimento@example.invalid",    "subject": "CANCELAR pedido PED-78410",    "body": "Quero cancelar o pedido PED-78410 da luminária, comprei errado. Ainda não paguei o boleto. Por favor cancelem hoje.",    "date": "2026-09-19T08:30:00-03:00"
+[
+  {
+    "id": "em-001",
+    "from_addr": "mariana.souza@example.invalid",
+    "from_name": "Mariana Souza",
+    "to": "atendimento@example.invalid",
+    "subject": "Pedido PED-78231 - previsão de entrega?",
+    "body": "Bom dia,\n\nFiz o pedido PED-78231 das 4 cadeiras na semana passada e ainda não recebi. Vocês têm o código de rastreio e a previsão de entrega?\n\nObrigada,\nMariana",
+    "date": "2026-09-18T09:12:00-03:00"
+  },
+  {
+    "id": "em-002",
+    "from_addr": "ana.lima@example.invalid",
+    "from_name": "Ana Lima",
+    "to": "atendimento@example.invalid",
+    "subject": "Segunda via do boleto",
+    "body": "Olá, perdi o boleto da minha compra da luminária. Podem me mandar a segunda via? Vence dia 20.\n\nAna",
+    "date": "2026-09-18T14:40:00-03:00"
+  },
+  {
+    "id": "em-003",
+    "from_addr": "carlos@example.invalid",
+    "from_name": "Carlos Pereira",
+    "to": "comercial@example.invalid",
+    "subject": "Cotação 20 mesas reguláveis",
+    "body": "Prezados,\n\nPrecisamos de 20 unidades da mesa regulável 140cm (SKU-2002) para um escritório novo. Qual o prazo e vocês fazem desconto para volume?\n\nAtt,\nCarlos Pereira\nConstrutora Pereira",
+    "date": "2026-09-18T16:05:00-03:00"
+  },
+  {
+    "id": "em-004",
+    "from_addr": "ana.lima@example.invalid",
+    "from_name": "Ana Lima",
+    "to": "atendimento@example.invalid",
+    "subject": "CANCELAR pedido PED-78410",
+    "body": "Quero cancelar o pedido PED-78410 da luminária, comprei errado. Ainda não paguei o boleto. Por favor cancelem hoje.",
+    "date": "2026-09-19T08:30:00-03:00"
+  },
+  {
+    "id": "em-005",
+    "from_addr": "promo@example.invalid",
+    "from_name": "Ofertas Imperdíveis",
+    "to": "atendimento@example.invalid",
+    "subject": "GANHE 70% DE DESCONTO HOJE!!!",
+    "body": "Clique agora e aproveite as melhores ofertas de eletrônicos importados. Frete grátis para todo o Brasil!",
+    "date": "2026-09-19T03:11:00-03:00"
+  },
+  {
+    "id": "em-006",
+    "from_addr": "roberto.alves@example.invalid",
+    "from_name": "Roberto Alves",
+    "to": "atendimento@example.invalid",
+    "subject": "Isso é um absurdo",
+    "body": "Já é a terceira vez que escrevo e ninguém responde. Minha cadeira chegou com o braço quebrado, quero a troca ou vou no Procon. Meu pedido é o PED-70001, comprei em agosto.",
+    "date": "2026-09-19T10:02:00-03:00"
+  },
+  {
+    "id": "em-007",
+    "from_addr": "mariana.souza@example.invalid",
+    "from_name": "Mariana Souza",
+    "to": "atendimento@example.invalid",
+    "subject": "Re: Pedido PED-78231 - previsão de entrega?",
+    "body": "Obrigada pelo retorno. Se não chegar até dia 22 como vocês disseram, posso cancelar e pedir o reembolso? Qual o prazo do estorno?\n\nMariana",
+    "date": "2026-09-19T11:05:00-03:00"
+  }
+]

@@ -342,7 +342,7 @@ def doctor(ping_jev: bool = typer.Option(False, help="faz uma chamada mínima à
 
 @app.command()
 def contracts(allow_writes: bool = typer.Option(False, help="executa também os checks de escrita"),
-              known_email: str = typer.Option("mariana.souza@lojaazul.com.br"),
+              known_email: str = typer.Option("mariana.souza@example.invalid"),
               known_order: str = typer.Option("PED-78231"),
               known_sku: str = typer.Option("SKU-1001")) -> None:
     """Suíte de contrato contra os adapters configurados (mocks ou sistemas reais)."""

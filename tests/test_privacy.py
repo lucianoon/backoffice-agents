@@ -3,14 +3,14 @@ from backoffice_agents.privacy import Pseudonymizer
 
 def test_masks_identifiers_with_stable_tokens():
     p = Pseudonymizer()
-    text = ("Contato: ana.lima@gmail.com, CPF 123.456.789-01, tel (11) 98765-4321, "
-            "cartão 4111 1111 1111 1111. Repito: ana.lima@gmail.com")
+    text = ("Contato: ana.lima@example.invalid, CPF 123.456.789-01, tel (11) 98765-4321, "
+            "cartão 4111 1111 1111 1111. Repito: ana.lima@example.invalid")
     out = p.text(text)
-    assert "ana.lima@gmail.com" not in out and "123.456.789-01" not in out
+    assert "ana.lima@example.invalid" not in out and "123.456.789-01" not in out
     assert "98765-4321" not in out and "4111 1111" not in out
     assert out.count("<email_1>") == 2          # mesmo valor, mesmo token
     assert "<cpf_1>" in out and "<telefone_1>" in out and "<cartao_1>" in out
-    assert p.vault["<email_1>"] == "ana.lima@gmail.com"
+    assert p.vault["<email_1>"] == "ana.lima@example.invalid"
 
 
 def test_keeps_business_identifiers():
@@ -29,8 +29,8 @@ def test_masks_known_names_case_insensitive_and_parts():
 
 def test_apply_recurses_into_structures():
     p = Pseudonymizer(names=["Carlos Pereira"])
-    state = {"email": {"from": "carlos@construtorapereira.com", "body": "Sou Carlos Pereira"},
-             "facts": [{"tool": "erp_get_order", "result": {"customer_email": "carlos@construtorapereira.com",
+    state = {"email": {"from": "carlos@example.invalid", "body": "Sou Carlos Pereira"},
+             "facts": [{"tool": "erp_get_order", "result": {"customer_email": "carlos@example.invalid",
                                                              "total": 48000.0}}]}
     out = p.apply(state)
     assert out["email"]["from"] == "<email_1>"

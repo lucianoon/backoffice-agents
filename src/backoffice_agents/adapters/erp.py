@@ -64,14 +64,14 @@ class MockErpAdapter:
         }
         self.orders: dict[str, Order] = {
             "PED-78231": Order(
-                id="PED-78231", customer_email="mariana.souza@lojaazul.com.br", status="enviado",
+                id="PED-78231", customer_email="mariana.souza@example.invalid", status="enviado",
                 items=[OrderItem(sku="SKU-1001", description="Cadeira ergonômica Pro", quantity=4,
                                  unit_price=1290.0)],
                 total=5160.0, created_at="2026-09-10", tracking_code="BR123456789XX",
                 expected_delivery="2026-09-22",
             ),
             "PED-78410": Order(
-                id="PED-78410", customer_email="ana.lima@gmail.com", status="aguardando_pagamento",
+                id="PED-78410", customer_email="ana.lima@example.invalid", status="aguardando_pagamento",
                 items=[OrderItem(sku="SKU-3003", description="Luminária LED articulada", quantity=1,
                                  unit_price=189.9)],
                 total=189.9, created_at="2026-09-17",
@@ -93,10 +93,11 @@ class MockErpAdapter:
         }
         self.invoices: dict[str, Invoice] = {
             "NF-55120": Invoice(id="NF-55120", order_id="PED-78231",
-                                customer_email="mariana.souza@lojaazul.com.br", amount=5160.0,
+                                customer_email="mariana.souza@example.invalid", amount=5160.0,
                                 due_date="2026-09-25", status="aberta",
                                 boleto_url="https://erp.exemplo.com/boleto/NF-55120"),
-            "NF-55301": Invoice(id="NF-55301", order_id="PED-78410", customer_email="ana.lima@gmail.com",
+            "NF-55301": Invoice(id="NF-55301", order_id="PED-78410",
+                                customer_email="ana.lima@example.invalid",
                                 amount=189.9, due_date="2026-09-20", status="aberta",
                                 boleto_url="https://erp.exemplo.com/boleto/NF-55301"),
             # piloto: casos do lote de e-mails reais de teste

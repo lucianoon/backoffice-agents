@@ -8,7 +8,7 @@ def test_gate_cache_avoids_duplicate_jev_call(make_runner):
     """Duas chamadas idênticas no mesmo passo consultam o gate uma vez só."""
     reply = "Olá Mariana, seu pedido PED-78231 foi enviado.\nEquipe de Atendimento"
     call = {"name": "crm_log_interaction",
-            "args": {"email": "mariana.souza@lojaazul.com.br",
+            "args": {"email": "mariana.souza@example.invalid",
                      "summary": "Cliente pediu rastreio; informado."},
             "id": "c2a", "type": "tool_call"}
     jev = FakeJev()
