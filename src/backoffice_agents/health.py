@@ -94,8 +94,7 @@ def _telegram_detail(settings: Settings) -> str:
 
 def _ping_jev(settings: Settings) -> Check:
     try:
-        jev = RealJevClient(settings.typesafe_api_key or "", settings.jev_model,
-                            settings.jev_base_url, settings.jev_timeout_s)
+        jev = RealJevClient.from_settings(settings, max_retries=0)
         response = jev.ask("ping", {"ok": NoulQuestion(instructions="Is this a connectivity check?",
                                                        criteria={"true": "always true", "false": "never"})})
         return Check("Jev API", True, f"{response.model} {response.latency_ms:.0f} ms")

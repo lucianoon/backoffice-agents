@@ -168,8 +168,7 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
     clients: list[tuple[str, JevClient]] = []
     llm: BaseChatModel
     if mode in {"real", "both"} or (mode == "configured" and settings.jev_mode == "real"):
-        clients.append(("jev-real", RealJevClient(settings.typesafe_api_key or "", settings.jev_model,
-                                                  settings.jev_base_url, settings.jev_timeout_s)))
+        clients.append(("jev-real", RealJevClient.from_settings(settings)))
     if mode in {"emulated", "both"} or (mode == "configured" and settings.jev_mode == "emulated"):
         if replay:
             llm, label_llm = ReplayChatModel(cassette_path=replay, mode="replay"), f"replay:{replay}"

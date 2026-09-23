@@ -8,6 +8,7 @@ e o log de decisões guarda isso para não contaminar a avaliação.
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from typing import Any
@@ -16,6 +17,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from .models import (
+    Answer,
     ChoiceAnswer,
     ChoiceQuestion,
     JevResponse,
@@ -51,7 +53,11 @@ class EmulatedJevClient:
         prompt = f"STATE:\n{state_text}\n\nQUESTIONS:\n{questions_text}"
         raw = self._llm.invoke([SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=prompt)])
         data = _extract_json(raw.content if isinstance(raw.content, str) else str(raw.content))
-        answers = {key: _to_answer(question, data.get(key, {})) for key, question in questions.items()}
+        answers: dict[str, Answer] = {}
+        for key, question in questions.items():
+            answer = _to_answer(question, data.get(key, {}))
+            if answer is not None:  # noul sem probabilidade válida fica de fora (fail-closed)
+                answers[key] = answer
         return JevResponse(
             model=self._model,
             answers=answers,
@@ -88,10 +94,27 @@ def _normalize(probs: dict[str, float], keys: list[str]) -> dict[str, float]:
     return {k: v / total for k, v in values.items()}
 
 
-def _to_answer(question: Question, raw: dict[str, Any]):
+def _noul_value(raw: Any) -> float | None:
+    """p_true do emulador; None se ausente ou não numérico (não inventa 0.5)."""
+    value = raw.get("p_true", raw.get("noul")) if isinstance(raw, dict) else None
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        p = float(value)
+    except (TypeError, ValueError):
+        return None
+    return min(1.0, max(0.0, p)) if math.isfinite(p) else None
+
+
+def _to_answer(question: Question, raw: dict[str, Any]) -> Answer | None:
+    """Converte a resposta do LLM.
+
+    Noul ausente ou inválido devolve None e fica fora da resposta: a triagem e a verificação escalam
+    e o gate de ferramenta pede aprovação humana, em vez de receberem um 0.5 inventado.
+    """
     if isinstance(question, NoulQuestion):
-        p = float(raw.get("p_true", raw.get("noul", 0.5)))
-        return NoulAnswer(noul=min(1.0, max(0.0, p)))
+        p = _noul_value(raw)
+        return None if p is None else NoulAnswer(noul=p)
     if isinstance(question, ChoiceQuestion):
         options = list(question.criteria.keys())
         probs = _normalize(raw.get("probabilities", {}), options)
