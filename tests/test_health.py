@@ -1,5 +1,5 @@
 from backoffice_agents.config import Settings
-from backoffice_agents.health import run_doctor
+from backoffice_agents.health import run_doctor, run_healthcheck
 
 
 def test_doctor_passes_on_default_mock_settings():
@@ -36,3 +36,10 @@ def test_doctor_fails_when_imap_login_fails(monkeypatch):
     checks = {c.name: c for c in run_doctor(settings)}
     assert checks["IMAP"].ok is False
     assert "falhou" in checks["IMAP"].detail
+
+
+def test_healthcheck_checks_db_without_external_calls(tmp_path):
+    ok = run_healthcheck(Settings(_env_file=None, db_url="sqlite:///" + (tmp_path / "h.db").as_posix()))
+    assert all(c.ok for c in ok) and {c.name for c in ok} >= {"DB", "TELEGRAM", "IMAP"}
+    bad = run_healthcheck(Settings(_env_file=None, db_url="sqlite:///" + (tmp_path / "nao/existe/h.db").as_posix()))
+    assert {c.name: c.ok for c in bad}["DB"] is False

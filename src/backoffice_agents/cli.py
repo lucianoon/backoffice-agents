@@ -341,6 +341,18 @@ def doctor(ping_jev: bool = typer.Option(False, help="faz uma chamada mínima à
 
 
 @app.command()
+def healthcheck() -> None:
+    """Checagem leve (config + banco) para o HEALTHCHECK do container; sai com 1 se falhar."""
+    from .health import run_healthcheck
+
+    load_dotenv()
+    checks = run_healthcheck(get_settings())
+    for check in checks:
+        rprint(f"{'ok' if check.ok else 'falha'}  {check.name}: {check.detail}")
+    raise typer.Exit(code=0 if all(c.ok for c in checks) else 1)
+
+
+@app.command()
 def contracts(allow_writes: bool = typer.Option(False, help="executa também os checks de escrita"),
               known_email: str = typer.Option("mariana.souza@example.invalid"),
               known_order: str = typer.Option("PED-78231"),
