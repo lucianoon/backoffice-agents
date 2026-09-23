@@ -39,6 +39,8 @@ def _build_erp(spec: str) -> ErpAdapter:
 
 
 def build_adapters(settings: Settings) -> Adapters:
+    email: EmailAdapter
+    telegram: TelegramAdapter
     if settings.email_adapter == "imap":
         email = ImapSmtpEmailAdapter(settings)
     else:

@@ -44,10 +44,10 @@ def _judge(decision: dict[str, Any]) -> tuple[bool, float] | None:
         return (p >= 0.5) == truth, max(p, 1 - p)
     if kind == "score":
         try:
-            truth = float(label)
+            level = float(label)
         except ValueError:
             return None
-        return abs(round(float(answer["score"])) - truth) <= 1, float(answer.get("confidence", 0.0))
+        return abs(round(float(answer["score"])) - level) <= 1, float(answer.get("confidence", 0.0))
     return None
 
 

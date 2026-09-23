@@ -22,6 +22,8 @@ def _decide(runner: Runner, approval_id: int, approved: bool, who: str) -> str:
     if approval["status"] != "pending":
         return f"aprovação #{approval_id} já está {approval['status']}"
     approval = runner.store.decide_approval(approval_id, approved, who)
+    if approval is None:
+        return f"aprovação #{approval_id} não existe"
     try:
         final = runner.resume_item(approval)
     except Exception as exc:
@@ -46,6 +48,10 @@ def _label_category(runner: Runner, item_id: str, category: str | None, who: str
     return f"📝 Categoria {verdict} para {item_id}. Obrigado!"
 
 
+def _categories(runner: Runner) -> list[str]:
+    return list(runner.tenant.categories) if runner.tenant else []
+
+
 def handle_callback(runner: Runner, data: str, who: str) -> Reply:
     parts = data.split(":")
     action = parts[0]
@@ -57,11 +63,11 @@ def handle_callback(runner: Runner, data: str, who: str) -> Reply:
             return _label_category(runner, item_id, None, who), None
         if sub == "fix":
             buttons = [Button(text=cat, callback_data=f"lbl:set:{item_id}:{cat}")
-                       for cat in runner.tenant.categories]
+                       for cat in _categories(runner)]
             return f"Qual é a categoria correta de {item_id}?", buttons
         if sub == "set":
             item_id, _, category = item_id.rpartition(":")
-            if category in runner.tenant.categories:
+            if category in _categories(runner):
                 return _label_category(runner, item_id, category, who), None
     return "botão desconhecido", None
 
@@ -79,8 +85,8 @@ def handle_text(runner: Runner, text: str, who: str) -> str:
                          f"{a['action'].get('tool') or 'envio de resposta'}" for a in pending)
     if cmd == "/status":
         counts: dict[str, int] = {}
-        for item in runner.store.list_items():
-            counts[item["status"]] = counts.get(item["status"], 0) + 1
+        for listed in runner.store.list_items():
+            counts[listed["status"]] = counts.get(listed["status"], 0) + 1
         return "\n".join(f"{k}: {v}" for k, v in sorted(counts.items())) or "Sem itens."
     if cmd in {"/aprovar", "/rejeitar"} and args and args[0].isdigit():
         return _decide(runner, int(args[0]), cmd == "/aprovar", who)

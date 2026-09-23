@@ -95,7 +95,7 @@ def _to_answer(question: Question, raw: dict[str, Any]):
     if isinstance(question, ChoiceQuestion):
         options = list(question.criteria.keys())
         probs = _normalize(raw.get("probabilities", {}), options)
-        best = max(probs, key=probs.get)
+        best = max(probs, key=lambda option: probs[option])
         return ChoiceAnswer(choice=best, probabilities=probs, confidence=probs[best])
     if isinstance(question, ScoreQuestion):
         levels = [str(i) for i in range(1, len(question.criteria) + 1)]

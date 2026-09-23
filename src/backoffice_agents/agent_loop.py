@@ -37,7 +37,7 @@ def unanswered_tool_calls(messages: list[BaseMessage]) -> list[dict[str, Any]]:
     if last_ai is None or not last_ai.tool_calls:
         return []
     answered = {m.tool_call_id for m in messages if isinstance(m, ToolMessage)}
-    return [c for c in last_ai.tool_calls if c["id"] not in answered]
+    return [dict(c) for c in last_ai.tool_calls if c["id"] not in answered]
 
 
 def execute_tool(registry: ToolRegistry, call: dict[str, Any]) -> ToolMessage:
@@ -65,7 +65,7 @@ def run_agent(llm: BaseChatModel, registry: ToolRegistry, messages: list[BaseMes
             messages.append(ai)
             if not ai.tool_calls:
                 return AgentTurn(messages=messages, final_text=_text(ai))
-            calls = list(ai.tool_calls)
+            calls = [dict(c) for c in ai.tool_calls]
 
         for call in calls:
             outcome, reason = gate(call)

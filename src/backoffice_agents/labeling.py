@@ -76,7 +76,7 @@ def agreement(labels_a: dict[str, dict[str, Any]], labels_b: dict[str, dict[str,
     report = AgreementReport(only_in_a=[i for i in labels_a if i not in labels_b],
                              only_in_b=[i for i in labels_b if i not in labels_a])
     for name in LABEL_FIELDS:
-        pairs = [(labels_a[i].get(name), labels_b[i].get(name)) for i in common
+        pairs: list[tuple[Any, Any]] = [(labels_a[i].get(name), labels_b[i].get(name)) for i in common
                  if labels_a[i].get(name) is not None and labels_b[i].get(name) is not None]
         if not pairs:
             continue

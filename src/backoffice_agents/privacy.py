@@ -7,6 +7,7 @@ decisões, então nunca é preciso reverter; o cofre fica em memória e não é 
 
 from __future__ import annotations
 
+import functools
 import re
 from collections.abc import Iterable
 from typing import Any
@@ -49,12 +50,15 @@ class Pseudonymizer:
             self.vault[token] = value
         return self._tokens[key]
 
+    def _replace(self, kind: str, match: re.Match[str]) -> str:
+        return self._token(kind, match.group(0))
+
     def text(self, value: str) -> str:
         # identificadores estruturados primeiro, para um nome não "comer" o início de um e-mail
         for kind, pattern in PATTERNS:
-            value = pattern.sub(lambda m, k=kind: self._token(k, m.group(0)), value)
+            value = pattern.sub(functools.partial(self._replace, kind), value)
         for pattern in self._name_patterns:
-            value = pattern.sub(lambda m: self._token("nome", m.group(0)), value)
+            value = pattern.sub(functools.partial(self._replace, "nome"), value)
         return value
 
     def apply(self, obj: Any) -> Any:

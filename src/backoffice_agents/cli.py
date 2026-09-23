@@ -152,9 +152,11 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
                 ) -> None:
     """Avaliação em sombra contra rótulos humanos: triagem, gate e verificação."""
     load_dotenv()
+    from langchain_core.language_models import BaseChatModel
+
     from .eval_shadow import load_dataset, load_jsonl, run_gate_shadow, run_shadow, run_verify_shadow
     from .eval_shadow import suggest_thresholds as _suggest
-    from .jev.client import RealJevClient
+    from .jev.client import JevClient, RealJevClient
     from .jev.emulated import EmulatedJevClient
     from .llm import build_emulator_llm
     from .replay import ReplayChatModel
@@ -163,7 +165,8 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
     settings = get_settings()
     tenant = load_tenant(settings.tenant_file)
     dataset = load_dataset(emails, labels)
-    clients = []
+    clients: list[tuple[str, JevClient]] = []
+    llm: BaseChatModel
     if mode in {"real", "both"} or (mode == "configured" and settings.jev_mode == "real"):
         clients.append(("jev-real", RealJevClient(settings.typesafe_api_key or "", settings.jev_model,
                                                   settings.jev_base_url, settings.jev_timeout_s)))

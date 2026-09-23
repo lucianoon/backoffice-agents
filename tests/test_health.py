@@ -41,5 +41,6 @@ def test_doctor_fails_when_imap_login_fails(monkeypatch):
 def test_healthcheck_checks_db_without_external_calls(tmp_path):
     ok = run_healthcheck(Settings(_env_file=None, db_url="sqlite:///" + (tmp_path / "h.db").as_posix()))
     assert all(c.ok for c in ok) and {c.name for c in ok} >= {"DB", "TELEGRAM", "IMAP"}
-    bad = run_healthcheck(Settings(_env_file=None, db_url="sqlite:///" + (tmp_path / "nao/existe/h.db").as_posix()))
+    missing_dir = "sqlite:///" + (tmp_path / "nao" / "existe" / "h.db").as_posix()
+    bad = run_healthcheck(Settings(_env_file=None, db_url=missing_dir))
     assert {c.name: c.ok for c in bad}["DB"] is False

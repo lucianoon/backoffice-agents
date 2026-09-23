@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -75,7 +76,7 @@ class Nodes:
                                   response.latency_ms, response.calibrated, version=self.tenant.label)
 
     def _ask(self, state: AgentState, stage: str, payload: dict[str, Any], questions,
-             extra_names: list[str] = ()) -> tuple[JevResponse, str | None]:
+             extra_names: Sequence[str] = ()) -> tuple[JevResponse, str | None]:
         """Pseudonimiza, consulta o Jev (com fallback) e registra. Devolve (resposta, nota)."""
         if self.settings.jev_anonymize:
             names = [state["email"].get("from_name", ""), *extra_names]
@@ -123,10 +124,12 @@ class Nodes:
         facts = []
         for m in messages:
             if isinstance(m, ToolMessage):
-                try:
-                    result = json.loads(m.content)
-                except (json.JSONDecodeError, TypeError):
-                    result = m.content
+                result: Any = m.content
+                if isinstance(m.content, str):
+                    try:
+                        result = json.loads(m.content)
+                    except json.JSONDecodeError:
+                        pass
                 facts.append({"tool": m.name, "result": result})
         return facts
 
@@ -345,8 +348,9 @@ class Nodes:
         resolves = response.noul("resolves")
         quality = response.score("quality")
         unsupported = response.noul("unsupported_claims")
-        claim_results = [{"text": text, "supported": round(response.noul(f"claim_{i}"), 3)}
-                         for i, text in enumerate(claims)]
+        claim_results: list[dict[str, Any]] = [
+            {"text": text, "supported": round(response.noul(f"claim_{i}"), 3)}
+            for i, text in enumerate(claims)]
         unsupported_claims = [c for c in claim_results if c["supported"] < 0.5]
         passed = (resolves >= self.settings.verify_min_resolves
                   and quality.score >= self.settings.verify_min_quality and unsupported < 0.5
@@ -385,15 +389,16 @@ class Nodes:
 
     def request_approval(self, state: AgentState) -> dict[str, Any]:
         email = state["email"]
-        if state.get("pending_action"):
-            call = state["pending_action"]["call"]
+        pending = state.get("pending_action")
+        if pending:
+            call = pending["call"]
             kind = "tool"
-            action = {"tool": call["name"], "args": call["args"], "reason": state["pending_action"]["reason"]}
+            action = {"tool": call["name"], "args": call["args"], "reason": pending["reason"]}
             text = (f"🔐 Aprovação necessária — item {state['item_id']}\n"
                     f"Cliente: {email.get('from_name')} <{email.get('from_addr')}>\n"
                     f"Assunto: {email.get('subject')}\n\nAção: {call['name']}\n"
                     f"Argumentos: {json.dumps(call['args'], ensure_ascii=False)}\n"
-                    f"Motivo: {state['pending_action']['reason']}")
+                    f"Motivo: {pending['reason']}")
         else:
             kind = "send"
             action = {"draft_reply": state.get("draft_reply", "")}
@@ -424,7 +429,7 @@ class Nodes:
         """
         if state.get("sent_at"):
             return {"status": "sent", "approval": None,
-                    "notes": state.get("notes", []) + ["envio ignorado: já enviado em " + state["sent_at"]]}
+                    "notes": state.get("notes", []) + [f"envio ignorado: já enviado em {state['sent_at']}"]}
         email_dict = state["email"]
         original = EmailMessage(**email_dict)
         self.store.set_item_state(state["item_id"], "sending", {**dict(state), "status": "sending"})

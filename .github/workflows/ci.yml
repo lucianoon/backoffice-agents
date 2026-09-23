@@ -36,8 +36,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
-      - run: uv sync --extra postgres
+      - run: uv sync --locked --extra postgres
       - run: uv run ruff check src tests
+      - name: tipos (mypy)
+        run: uv run mypy
       - run: uv run pytest -q
       - name: contratos dos adapters (mocks)
         run: uv run backoffice contracts --allow-writes
