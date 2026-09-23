@@ -148,14 +148,23 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
 - **Pseudonimização** (`JEV_ANONYMIZE`): antes de sair para o Jev, e-mails, CPF, CNPJ, cartões,
   telefones e os nomes conhecidos do cliente viram tokens estáveis por item (`<email_1>`, `<nome_1>`).
   Números de pedido, nota e rastreio ficam. O e-mail enviado ao cliente não é afetado.
-- **Jev fora do ar**: na triagem e na verificação, cai para o emulador (`JEV_FALLBACK_EMULATED`) e
-  anota isso no item; sem fallback, o item escala para um humano. No gate, a ação cai para aprovação
-  humana. Erros de outra natureza deixam o item em `error`, reprocessado até `MAX_ATTEMPTS` e então
-  `failed`, com aviso no Telegram.
+- **Jev fora do ar**: o cliente real tem timeout por requisição (`JEV_TIMEOUT_S`) e repete em 429, 5xx
+  e erro de rede/timeout com backoff exponencial (`JEV_MAX_RETRIES`, `JEV_BACKOFF_S`, limitado a
+  `JEV_BACKOFF_MAX_S`), respeitando `Retry-After`; um `Retry-After` maior que o limite encerra as
+  tentativas. Esgotadas, ou com resposta fora do contrato (sem `answers`, JSON inválido, pergunta sem
+  resposta), levanta um erro tipado (`JevUnavailableError`, `JevHTTPError`,
+  `JevMalformedResponseError`). Na triagem e na verificação, cai para o emulador
+  (`JEV_FALLBACK_EMULATED`) e anota isso no item; sem fallback, o item escala para um humano. No gate,
+  a ação cai para aprovação humana. Erros de outra natureza deixam o item em `error`, reprocessado
+  até `MAX_ATTEMPTS` e então `failed`, com aviso no Telegram.
 - **Prompt injection**: a triagem pergunta ao Jev se o e-mail tenta instruir o assistente (ignorar
   regras, agir em nome de outro cliente, revelar dados). Acima de `INJECTION_ESCALATE` o item escala
   sem nenhuma chamada ao LLM do agente nem à transcrição de imagens (a triagem com esse gate roda
-  antes de qualquer uma delas; ver "Anexos"). Com o **Jev real** o e-mail não chega a LLM nenhum. No
+  antes de qualquer uma delas; ver "Anexos"). O gate é fail-closed: resposta ausente, malformada ou
+  não numérica conta como suspeita e escala do mesmo jeito, também sem LLM (o emulador não inventa
+  0.5 para um Noul que o LLM deixou de responder). O mesmo vale para as demais perguntas da triagem e
+  da verificação; no gate de ferramenta, a ação vai para aprovação humana. Com o **Jev real** o
+  e-mail não chega a LLM nenhum. No
   **modo emulado** (`JEV_MODE=emulated`, ou `JEV_FALLBACK_EMULATED` com o Jev fora do ar) a própria
   triagem é feita por um LLM: o conteúdo chega a ele, mas numa chamada sem ferramentas que só pode
   devolver probabilidades em JSON. Imagens de um e-mail que passou no gate vão ao LLM com visão
