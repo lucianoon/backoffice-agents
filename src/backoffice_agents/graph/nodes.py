@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,7 +29,7 @@ from ..attachments import extract_all, needs_vision
 from ..budget import fit_state
 from ..claims import split_reply
 from ..config import Settings
-from ..jev import JevClient, JevResponse
+from ..jev import ChoiceAnswer, JevClient, JevResponse, NoulAnswer, ScoreAnswer
 from ..knowledge import KnowledgeBase
 from ..obs import log_event
 from ..policy import GateOutcome, RiskLevel, Tier, gate_outcome, tier_for
@@ -41,6 +42,36 @@ from ..tracing import traced_jev_ask
 from .state import AgentState
 
 # O prompt do sistema vem do tenant (tenants/*.toml); ver tenant.DEFAULT_SYSTEM_PROMPT.
+
+
+def _probability(value: Any) -> float | None:
+    """Número finito em [0, 1]; qualquer outra coisa (None, str, bool, NaN) é None."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) and 0.0 <= value <= 1.0 else None
+
+
+def valid_noul(response: JevResponse, key: str) -> float | None:
+    """Noul `key` da resposta, ou None se ausente, de outro tipo ou não numérico."""
+    answer = response.answers.get(key)
+    return _probability(answer.noul) if isinstance(answer, NoulAnswer) else None
+
+
+def invalid_triage_keys(response: JevResponse) -> list[str]:
+    """Perguntas da triagem (além de injection) sem resposta utilizável."""
+    invalid = [key for key in ("needs_human", "sensitive") if valid_noul(response, key) is None]
+    category = response.answers.get("category")
+    if not isinstance(category, ChoiceAnswer) or _probability(category.confidence) is None:
+        invalid.append("category")
+    urgency = response.answers.get("urgency")
+    if not isinstance(urgency, ScoreAnswer) or not _finite(urgency.score):
+        invalid.append("urgency")
+    return invalid
+
+
+def _finite(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, int | float) and math.isfinite(value)
 
 
 class Nodes:
@@ -62,8 +93,13 @@ class Nodes:
     # ---------- helpers ----------
     def _log(self, item_id: str, stage: str, response: JevResponse) -> None:
         for key, answer in response.answers.items():
-            confidence = answer.confidence
-            self.store.log_decision(item_id, stage, key, answer.type, answer.model_dump(),
+            try:  # resposta malformada é registrada com confiança zero, sem derrubar o item
+                confidence = float(answer.confidence)
+            except (TypeError, ValueError):
+                confidence = 0.0
+            if not math.isfinite(confidence):
+                confidence = 0.0
+            self.store.log_decision(item_id, stage, key, answer.type, answer.model_dump(warnings=False),
                                     confidence, response.calibrated, response.model, response.latency_ms,
                                     version=self.tenant.label)
 
@@ -172,8 +208,9 @@ class Nodes:
                         decisions.gate_state(state["email"], state.get("triage", {}), call["name"],
                                              call["args"], facts),
                         decisions.gate_questions(call["name"]))
-                    appropriate = response.noul("appropriate")
-                    args_complete = response.noul("args_complete")
+                    # ausente/malformado vira None: gate_outcome cai para aprovação humana
+                    appropriate = valid_noul(response, "appropriate")
+                    args_complete = valid_noul(response, "args_complete")
                 except Exception as exc:  # Jev indisponível: fail-closed para aprovação humana
                     return GateOutcome.APPROVE, f"gate indisponível ({exc.__class__.__name__})"
                 outcome = gate_outcome(risk, appropriate, args_complete, self.settings)
@@ -192,8 +229,16 @@ class Nodes:
             decisions.triage_questions(self.tenant), extra_names=[contact.name] if contact else [])
 
     @staticmethod
-    def _injection(response: JevResponse) -> float:
-        return response.noul("injection") if "injection" in response.answers else 0.0
+    def _injection(response: JevResponse) -> float | None:
+        """Probabilidade de prompt injection, ou None se o Jev não devolveu uma válida.
+
+        Fail-closed: quem chama trata None como suspeito (o item escala sem chamar o LLM).
+        """
+        return valid_noul(response, "injection")
+
+    def _injection_clear(self, response: JevResponse) -> bool:
+        injection = self._injection(response)
+        return injection is not None and injection < self.settings.injection_escalate
 
     def _triage_notes(self, response: JevResponse, fallback_note: str | None,
                       history: list[dict[str, Any]], attachments: list[dict[str, Any]]) -> list[str]:
@@ -234,7 +279,7 @@ class Nodes:
         extra_notes: list[str] = []
         try:
             response, fallback_note = self._triage_ask(state, contact, history, attachments)
-            if needs_vision(raw) and self._injection(response) < self.settings.injection_escalate:
+            if needs_vision(raw) and self._injection_clear(response):
                 attachments = extract_all(raw, self.llm)
                 response, fallback_note = self._triage_ask(state, contact, history, attachments)
                 extra_notes.append("triagem refeita com a transcrição das imagens")
@@ -244,16 +289,33 @@ class Nodes:
                     "escalation_reason": f"triagem indisponível ({exc.__class__.__name__}: {exc})",
                     "notes": [f"triagem falhou: {exc.__class__.__name__}"]}
         context_update = {"thread": history, "attachments": attachments}
+        base_notes = ([fallback_note] if fallback_note else []) + extra_notes
+        injection = self._injection(response)
+        if injection is None:
+            # resposta ausente, malformada ou não numérica: suspeita até prova em contrário
+            log_event("triage_injection_invalid", item_id=state["item_id"])
+            return context_update | self._escalate(
+                {"injection": None, "calibrated": response.calibrated},
+                base_notes + ["triagem: Jev sem probabilidade válida de prompt injection"],
+                "triagem: gate de prompt injection sem resposta válida do Jev (fail-closed)")
+        invalid = invalid_triage_keys(response)
+        if invalid:
+            log_event("triage_incomplete", item_id=state["item_id"], keys=invalid)
+            return context_update | self._escalate(
+                {"injection": round(injection, 3), "calibrated": response.calibrated},
+                base_notes + [f"triagem: Jev sem resposta válida para {', '.join(invalid)}"],
+                "triagem: resposta incompleta do Jev (fail-closed)")
         notes = self._triage_notes(response, fallback_note, history, attachments) + extra_notes
-        return context_update | self._route_triage(state, response, notes, history, attachments)
+        return context_update | self._route_triage(state, response, notes, history, attachments,
+                                                   injection)
 
     def _route_triage(self, state: AgentState, response: JevResponse, notes: list[str],
-                      history: list[dict[str, Any]], attachments: list[dict[str, Any]]) -> dict[str, Any]:
+                      history: list[dict[str, Any]], attachments: list[dict[str, Any]],
+                      injection: float) -> dict[str, Any]:
         category = response.choice("category")
         urgency = response.score("urgency")
         needs_human = response.noul("needs_human")
         sensitive = response.noul("sensitive")
-        injection = self._injection(response)
         triage = {
             "category": category.choice,
             "category_confidence": category.confidence,
@@ -345,12 +407,28 @@ class Nodes:
             return {"status": "escalated",
                     "escalation_reason": f"verificação indisponível ({exc.__class__.__name__})",
                     "notes": state.get("notes", []) + [f"verificação falhou: {exc.__class__.__name__}"]}
-        resolves = response.noul("resolves")
-        quality = response.score("quality")
-        unsupported = response.noul("unsupported_claims")
+        resolves_p = valid_noul(response, "resolves")
+        unsupported_p = valid_noul(response, "unsupported_claims")
+        quality_answer = response.answers.get("quality")
+        claim_ps = [valid_noul(response, f"claim_{i}") for i in range(len(claims))]
+        invalid = ([k for k, v in (("resolves", resolves_p), ("unsupported_claims", unsupported_p))
+                    if v is None]
+                   + ([] if isinstance(quality_answer, ScoreAnswer) and _finite(quality_answer.score)
+                      else ["quality"])
+                   + [f"claim_{i}" for i, p in enumerate(claim_ps) if p is None])
+        if invalid:  # sem veredito válido nada é enviado: humano revisa o rascunho
+            log_event("verify_incomplete", item_id=state["item_id"], keys=invalid)
+            return {"status": "escalated",
+                    "escalation_reason": "verificação: resposta incompleta do Jev (fail-closed)",
+                    "notes": state.get("notes", []) + [
+                        f"verificação: Jev sem resposta válida para {', '.join(invalid)}"]}
+        # só estreita os tipos: `invalid` vazio já garante estes valores
+        assert resolves_p is not None and unsupported_p is not None
+        assert isinstance(quality_answer, ScoreAnswer)
+        resolves, unsupported, quality = resolves_p, unsupported_p, quality_answer
         claim_results: list[dict[str, Any]] = [
-            {"text": text, "supported": round(response.noul(f"claim_{i}"), 3)}
-            for i, text in enumerate(claims)]
+            {"text": text, "supported": round(p, 3)}
+            for text, p in zip(claims, claim_ps, strict=True) if p is not None]
         unsupported_claims = [c for c in claim_results if c["supported"] < 0.5]
         passed = (resolves >= self.settings.verify_min_resolves
                   and quality.score >= self.settings.verify_min_quality and unsupported < 0.5
