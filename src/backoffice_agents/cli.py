@@ -205,11 +205,13 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
         rprint(f"  urgência (±1): {result.urgency_accuracy:.0%}")
         rprint(f"  precisa humano: {result.needs_human_accuracy:.0%}")
         rprint(f"  latência média: {result.mean_latency_ms:.0f} ms")
+        rprint(_missing_line(result.missing_total, result.n * 3, result.missing_rate,
+                             ", ".join(f"{k}={v}" for k, v in sorted(result.missing.items()))))
         table = Table("id", "esperado", "previsto", "conf", "urg", "humano", "ms")
         for row in result.rows:
             style = "" if row["expected"] == row["predicted"] else "red"
-            table.add_row(*(str(row[k]) for k in ("id", "expected", "predicted", "confidence", "urgency",
-                                                    "needs_human", "latency_ms")), style=style)
+            table.add_row(*(_cell(row[k]) for k in ("id", "expected", "predicted", "confidence", "urgency",
+                                                      "needs_human", "latency_ms")), style=style)
         rprint(table)
         if suggest_thresholds:
             suggested = _suggest(result.rows, target_precision)
@@ -235,20 +237,36 @@ def eval_shadow(labels: str = typer.Option("data/samples/labeled.jsonl"),
         raise typer.Exit(code=1)
 
 
+def _cell(value) -> str:
+    from .eval_shadow import MISSING
+
+    return MISSING if value is None else str(value)
+
+
+def _missing_line(missing: int, expected: int, rate: float, detail: str = "") -> str:
+    """Taxa de respostas ausentes do estágio (contadas como erro nas métricas de acerto)."""
+    style = "yellow" if missing else "dim"
+    extra = f" ({detail})" if detail else ""
+    return f"  [{style}]respostas ausentes: {missing}/{expected} ({rate:.0%}){extra}[/{style}]"
+
+
 def _print_stage(result, label_: str) -> None:
     rprint(f"\n[bold]{label_}[/bold]  {result.stage} n={result.n}  "
            f"latência média {result.mean_latency_ms:.0f} ms")
     for key, m in result.metrics.items():
+        absent = f"  sem resposta {m['missing']}" if m.get("missing") else ""
         if "accuracy" in m:
-            rprint(f"  {key}: acurácia {m['accuracy']:.0%}  ECE={m['ece']:.3f}")
+            rprint(f"  {key}: acurácia {m['accuracy']:.0%}  ECE={m['ece']:.3f}{absent}")
         else:
-            rprint(f"  {key}: dentro de ±1 em {m['within_one']:.0%}")
+            rprint(f"  {key}: dentro de ±1 em {m['within_one']:.0%}{absent}")
+    rprint(_missing_line(result.missing_total, result.n * len(result.metrics), result.missing_rate))
     columns = [k for k in result.rows[0] if k != "id"] if result.rows else []
     table = Table("id", *columns)
     for row in result.rows:
-        wrong = any(k.endswith("_label") and ((row[k[:-6]] >= 0.5) != row[k]) for k in columns
-                    if isinstance(row[k], bool))
-        table.add_row(row["id"], *(str(row[k]) for k in columns), style="red" if wrong else "")
+        # sem resposta (None) conta como erro, como nas métricas
+        wrong = any(k.endswith("_label") and (row[k[:-6]] is None or (row[k[:-6]] >= 0.5) != row[k])
+                    for k in columns if isinstance(row[k], bool))
+        table.add_row(row["id"], *(_cell(row[k]) for k in columns), style="red" if wrong else "")
     rprint(table)
 
 

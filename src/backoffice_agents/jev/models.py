@@ -7,6 +7,7 @@ saiba qual dos dois está ativo.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -114,6 +115,24 @@ def parse_answer(raw: dict[str, Any]) -> Answer:
             confidence=float(raw.get("confidence", 0.0)),
         )
     raise ValueError(f"tipo de resposta desconhecido: {kind!r}")
+
+
+def probability(value: Any) -> float | None:
+    """Número finito em [0, 1]; qualquer outra coisa (None, str, bool, NaN) é None."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) and 0.0 <= value <= 1.0 else None
+
+
+def is_finite_number(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, int | float) and math.isfinite(value)
+
+
+def valid_noul(response: JevResponse, key: str) -> float | None:
+    """Noul `key` da resposta, ou None se ausente, de outro tipo ou não numérico (fail-closed)."""
+    answer = response.answers.get(key)
+    return probability(answer.noul) if isinstance(answer, NoulAnswer) else None
 
 
 def questions_payload(questions: dict[str, Question]) -> dict[str, Any]:

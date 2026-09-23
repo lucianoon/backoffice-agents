@@ -67,6 +67,8 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
   de ferramenta com rótulos de adequada e argumentos completos); `--stage verify` usa
   `verify_labeled.jsonl` (rascunhos com rótulos de resolve, afirmações sem base e qualidade).
   `--stage all` roda as três decisões. Os conjuntos são sintéticos, com positivos e negativos.
+  Pergunta que o Jev deixou sem resposta válida aparece como "sem resposta", conta como erro na
+  acurácia (nunca como 0.5) e entra na linha "respostas ausentes" de cada estágio.
 
 ### Verificação por afirmação, regressão determinística e observabilidade
 
