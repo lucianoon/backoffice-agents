@@ -112,7 +112,7 @@ class Runner:
         seen: set[str] = set()
 
         def claim_items(limit: int) -> list[dict[str, Any]]:
-            batch = []
+            batch: list[dict[str, Any]] = []
             while len(batch) < limit and (item := self.store.claim_next(
                     self.settings.max_attempts, self.settings.retry_delay_s, exclude=seen)) is not None:
                 seen.add(item["id"])
@@ -123,13 +123,13 @@ class Runner:
             try:
                 return item["id"], self.process_item(item["id"])["status"]
             except Exception:
-                return item["id"], self.store.get_item(item["id"])["status"]
+                return item["id"], self._current_status(item["id"])
 
         def run_approval(approval: dict[str, Any]) -> tuple[str, str]:
             try:
                 return approval["item_id"], self.resume_item(approval)["status"]
             except Exception:
-                return approval["item_id"], self.store.get_item(approval["item_id"])["status"]
+                return approval["item_id"], self._current_status(approval["item_id"])
 
         workers = max(1, self.settings.worker_concurrency)
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -142,6 +142,10 @@ class Runner:
                 outcomes += list(pool.map(run_approval, approvals_batch))
         self.check_alerts()
         return outcomes
+
+    def _current_status(self, item_id: str) -> str:
+        item = self.store.get_item(item_id)
+        return item["status"] if item else "missing"
 
     def purge(self, dry_run: bool = False) -> PurgeResult:
         """Expurgo por retencao (LGPD): redige e apaga itens encerrados conforme os prazos."""
@@ -171,11 +175,11 @@ class Runner:
             outcomes.append((item["id"], self._escalate_ambiguous(
                 item, "processo interrompido durante o envio do e-mail; confirmar se a resposta saiu")))
         for approval in self.store.list_approvals("applying"):
-            item = self.store.get_item(approval["item_id"])
+            target = self.store.get_item(approval["item_id"])
             self.store.set_approval_status(approval["id"], "applied")
-            if item and item["status"] not in TERMINAL:
-                outcomes.append((item["id"], self._escalate_ambiguous(
-                    item, f"processo interrompido ao aplicar a aprovação #{approval['id']} "
+            if target and target["status"] not in TERMINAL:
+                outcomes.append((target["id"], self._escalate_ambiguous(
+                    target, f"processo interrompido ao aplicar a aprovação #{approval['id']} "
                           f"({approval['action'].get('tool') or 'envio'}); confirmar no sistema de destino")))
         return outcomes
 

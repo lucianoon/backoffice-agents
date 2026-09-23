@@ -21,7 +21,7 @@ e-mail ──> triagem (Jev) ──> agente LLM + ferramentas ──> verificaç
                └──> escalar    aprovação humana (Telegram)   revisão humana (Telegram)
 ```
 
-1. **Triagem** (uma chamada, cinco perguntas): categoria (Choice), urgência (Score 1-5), precisa de
+1. **Triagem** (uma chamada, cinco perguntas; duas chamadas quando há imagem anexa): categoria (Choice), urgência (Score 1-5), precisa de
    humano (Noul), dado sensível (Noul), prompt injection (Noul). Spam com confiança alta é descartado;
    pedido de humano (`NEEDS_HUMAN_ESCALATE`) ou dado sensível (`SENSITIVE_ESCALATE`) escala.
 2. **Faixa de confiança** da categoria define o caminho: `auto` (>= 0,85) segue sozinho, `review`
@@ -49,7 +49,9 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
   qualquer prazo ou regra, e a verificação usa os trechos como base para "afirmações sem base".
 - **Anexos**: PDF (pypdf), texto e imagens (transcrição pelo LLM com visão) viram texto no estado
   do item, ao lado do corpo do e-mail, e passam pela mesma pseudonimização. Anexos acima de 5 MB
-  são registrados sem conteúdo.
+  são registrados sem conteúdo. A triagem roda primeiro sem LLM (PDF e texto extraídos, imagens
+  pendentes); só se o e-mail passar pelo gate de prompt injection as imagens são transcritas, e a
+  triagem é refeita com a transcrição, que passa pelo mesmo gate antes de chegar ao agente.
 
 ### Orçamento de tokens, configuração por cliente e avaliação das três decisões
 
@@ -76,9 +78,19 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
 - **Cassete de replay**: `eval-shadow --record data/cassettes/eval.json` grava as respostas do
   LLM (emulador) indexadas pelo hash das mensagens; `--replay` responde só pelo cassete, sem rede
   nem chave. O CI roda a avaliação completa em replay com mínimos (`--min-triage`, `--min-gate`,
-  `--min-verify`) e falha se a lógica regredir. Mudou prompt, taxonomia ou dataset? Regenere o
-  cassete com `PYTHONPATH=src uv run python scripts/rebuild_cassette.py` (respostas alinhadas
-  ao rótulo, sem LLM) ou grave de novo com `--record` se quiser o texto do emulador.
+  `--min-verify`) e `--fail-stale`. Como o cassete versionado é gerado a partir dos próprios
+  rótulos (`scripts/rebuild_cassette.py`, respostas alinhadas ao rótulo com p=0,9, sem LLM), esse
+  passo **não mede qualidade do modelo nem pega perda de acurácia**: ele falha quando prompt,
+  perguntas, taxonomia, pseudonimização ou dataset mudam sem o cassete ser regenerado (entrada
+  ausente ou sobrando) e quando o caminho de avaliação (parse das respostas, métricas) quebra.
+  Mudou algum desses de propósito? Regenere com `PYTHONPATH=src uv run python
+  scripts/rebuild_cassette.py` ou grave de novo com `--record` para ter o texto real do emulador
+  (aí sim os mínimos passam a medir o LLM gravado).
+- **Regressão da lógica de decisão**: `tests/test_decision_logic_golden.py` é uma tabela-verdade
+  rotulada, independente do cassete, do que o código faz com as probabilidades do Jev: precedência
+  dos escalonamentos da triagem (injection, dado sensível, spam, humano, confiança), nível de risco
+  de cada ferramenta, desfecho do gate e aprovação, regeneração ou escalada na verificação. Mudar
+  limiar default, ordem dos checks ou risco de ferramenta quebra esses testes.
 - **Logs e métricas**: `LOG_FORMAT=json` emite um evento por linha (triagem, gate, aprovação,
   envio, escalada, erro, alerta) com `item_id` e campos. `backoffice metrics` mostra profundidade
   da fila, erros, escaladas, aprovações pendentes e sua idade, latência média e p95 por modelo e
@@ -106,7 +118,7 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
   para `needs_human` e `urgency`. Guia para rotuladores com regras de desempate.
 - **Dois anotadores**: `backoffice labels export` gera o lote; `labels agreement` mede acordo e
   kappa de Cohen por campo; `labels merge` consolida onde concordam e separa conflitos para
-  adjudicação. Os 30 e-mails de `emails_eval.json` são sintéticos, servem para exercitar as
+  adjudicação. Os e-mails de `emails_eval.json` são sintéticos, servem para exercitar as
   ferramentas, não para tirar conclusões.
 - **Rótulo pelo Telegram**: toda notificação final (respondido, escalado, descartado) traz os
   botões "Categoria ok" e "Corrigir categoria". O rótulo vai para a tabela `decisions`;
@@ -142,11 +154,18 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
   `failed`, com aviso no Telegram.
 - **Prompt injection**: a triagem pergunta ao Jev se o e-mail tenta instruir o assistente (ignorar
   regras, agir em nome de outro cliente, revelar dados). Acima de `INJECTION_ESCALATE` o item escala
-  e o conteúdo nunca chega ao LLM. O prompt do agente também trata o e-mail como dado, não instrução.
+  sem nenhuma chamada ao LLM do agente nem à transcrição de imagens (a triagem com esse gate roda
+  antes de qualquer uma delas; ver "Anexos"). Com o **Jev real** o e-mail não chega a LLM nenhum. No
+  **modo emulado** (`JEV_MODE=emulated`, ou `JEV_FALLBACK_EMULATED` com o Jev fora do ar) a própria
+  triagem é feita por um LLM: o conteúdo chega a ele, mas numa chamada sem ferramentas que só pode
+  devolver probabilidades em JSON. Imagens de um e-mail que passou no gate vão ao LLM com visão
+  (também sem ferramentas) e o texto transcrito passa pelo gate de novo antes do agente. O prompt do
+  agente também trata o e-mail como dado, não instrução.
 - **Identidade nas ferramentas**: CRM/ERP só operam no remetente do item. Pedido ou fatura de outro
   cliente volta como não encontrado (sem vazar dados). Encaminhamento só para endereços em
   `EMAIL_FORWARD_ALLOWLIST`.
-- **Dado sensível**: noul `sensitive` acima de `SENSITIVE_ESCALATE` escala sem passar pelo LLM.
+- **Dado sensível**: noul `sensitive` acima de `SENSITIVE_ESCALATE` escala sem passar pelo agente
+  LLM (no modo emulado, a triagem em si já foi feita por um LLM, como descrito acima).
   `NEEDS_HUMAN_ESCALATE` é o limiar próprio de “precisa de humano”, separado de `CONFIDENCE_AUTO`.
 - **IMAP por UID**: ingestão e `mark_processed` usam UID SEARCH/FETCH/STORE, então compactar a caixa
   não renumera `item_id` nem marca a mensagem errada.
@@ -156,8 +175,11 @@ com espaço para o rótulo humano, que é o que permite medir calibração ao lo
 - **Contrato dos adapters**: `backoffice contracts` roda a mesma suíte contra mocks ou sistemas
   reais (leituras por padrão; `--allow-writes` inclui criar e cancelar pedido). Ao implementar um
   CRM ou ERP real, o grafo não muda; o contrato garante que o adapter se comporta como o mock.
-- **CI**: `.github/workflows/ci.yml` roda ruff, a suíte (inclusive o teste de Postgres) e os
-  contratos a cada push e pull request.
+- **CI**: `.github/workflows/ci.yml` roda ruff, mypy (`src/`, com `check_untyped_defs`), a suíte
+  (inclusive o teste de Postgres), os contratos e o replay da avaliação a cada push e pull request.
+- **Container**: o `Dockerfile` instala exatamente o `uv.lock` (`uv sync --locked`, sem fallback),
+  roda como usuário sem root e tem `HEALTHCHECK` com `backoffice healthcheck` (configuração e
+  `SELECT 1` no banco, sem chamadas externas).
 - **Efeitos externos no máximo uma vez**: o envio grava um marcador `sending` em disco antes de chamar
   o SMTP e `sent_at` depois; uma aprovação em aplicação fica `applying`. Se o processo morrer no meio,
   a retomada não repete o efeito: o item vai para um humano confirmar no sistema de destino.
@@ -169,10 +191,11 @@ Requer Python 3.12 ou 3.13 e [uv](https://docs.astral.sh/uv/).
 ```bash
 cp .env.example .env        # preencha LLM_* (ou exporte OPENAI_API_KEY)
 uv sync --python 3.12
-uv run pytest               # 60 testes, tudo com mocks e LLM roteirizado (+1 no Postgres com TEST_DB_URL)
+uv run pytest               # suíte offline: mocks e LLM roteirizado (o teste de Postgres roda só com TEST_DB_URL)
+uv run mypy                 # checagem de tipos de src/
 uv run backoffice contracts --allow-writes   # suíte de contrato dos adapters configurados
 
-uv run backoffice demo      # ponta a ponta com os 6 e-mails de exemplo e mocks
+uv run backoffice demo      # ponta a ponta com os e-mails de data/samples/emails.json e mocks
 uv run backoffice items     # lista os itens e o status final
 uv run backoffice show email:em-001
 uv run backoffice eval-shadow --mode emulated --suggest-thresholds   # triagem x rótulos: acurácia, ECE, limiares
@@ -219,7 +242,7 @@ src/backoffice_agents/
   labeling.py      lote para anotadores, kappa de Cohen, consolidação, export da caixa
   calibration.py   acurácia e ECE das decisões com rótulo humano
   decisions.py     as perguntas feitas ao Jev em cada etapa
-  health.py        `backoffice doctor`: Jev, IMAP, Telegram, sem vazar segredo
+  health.py        `backoffice doctor` (Jev, IMAP, Telegram, sem vazar segredo) e `backoffice healthcheck`
   tools.py         ferramentas do agente com nível de risco declarado
   agent_loop.py    loop de tool calling com gate e parada para aprovação
   graph/           grafo LangGraph (triagem, ação, verificação, aprovação, envio)

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .jev import JevClient, JevResponse, ScoreQuestion
+from .jev.models import Question
 from .privacy import Pseudonymizer
 
 RELEVANCE_LEVELS = [
@@ -99,7 +100,7 @@ class KnowledgeBase:
         candidates = self.lexical_candidates(query)
         if not candidates:
             return []
-        questions = {
+        questions: dict[str, Question] = {
             f"p{i}": ScoreQuestion(
                 instructions=f"How relevant is passage p{i} for answering the customer question?",
                 criteria=RELEVANCE_LEVELS)

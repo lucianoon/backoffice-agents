@@ -32,7 +32,12 @@ aws = ["boto3>=1.34"]
 backoffice = "backoffice_agents.cli:app"
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6"]
+dev = [
+    "mypy>=2.3.1",
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -54,3 +59,12 @@ select = ["E", "F", "I", "UP", "B", "ISC"]
 # capturas amplas são deliberadas nas fronteiras (Jev, ferramentas, retomada): fail-closed
 # B008: `typer.Option(...)` em defaults é o idioma do typer
 ignore = ["BLE001", "B008"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+ignore_missing_imports = true

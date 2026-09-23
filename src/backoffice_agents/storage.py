@@ -351,7 +351,10 @@ class Store:
             result = conn.execute(approvals.insert().values(
                 item_id=item_id, kind=kind, action=json.dumps(action, ensure_ascii=False),
                 status="pending", telegram_message_id=telegram_message_id, requested_at=_now()))
-        return int(result.inserted_primary_key[0])
+        key = result.inserted_primary_key
+        if key is None:
+            raise RuntimeError("insert de aprovação sem chave primária")
+        return int(key[0])
 
     def set_approval_message(self, approval_id: int, telegram_message_id: str) -> None:
         with self.engine.begin() as conn:
@@ -385,6 +388,8 @@ class Store:
             if result.rowcount != 1:
                 return None
         approval = self.get_approval(approval_id)
+        if approval is None:  # apagada entre a reserva e a leitura (expurgo)
+            return None
         approval["decided_status"] = decided_status  # o runner precisa saber se foi aprovada
         return approval
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,7 @@ from ..adapters import Adapters
 from ..adapters.email import Attachment, EmailMessage
 from ..adapters.telegram import Button, MockTelegramAdapter
 from ..agent_loop import execute_tool, run_agent
-from ..attachments import extract_all
+from ..attachments import extract_all, needs_vision
 from ..budget import fit_state
 from ..claims import split_reply
 from ..config import Settings
@@ -75,7 +76,7 @@ class Nodes:
                                   response.latency_ms, response.calibrated, version=self.tenant.label)
 
     def _ask(self, state: AgentState, stage: str, payload: dict[str, Any], questions,
-             extra_names: list[str] = ()) -> tuple[JevResponse, str | None]:
+             extra_names: Sequence[str] = ()) -> tuple[JevResponse, str | None]:
         """Pseudonimiza, consulta o Jev (com fallback) e registra. Devolve (resposta, nota)."""
         if self.settings.jev_anonymize:
             names = [state["email"].get("from_name", ""), *extra_names]
@@ -123,10 +124,12 @@ class Nodes:
         facts = []
         for m in messages:
             if isinstance(m, ToolMessage):
-                try:
-                    result = json.loads(m.content)
-                except (json.JSONDecodeError, TypeError):
-                    result = m.content
+                result: Any = m.content
+                if isinstance(m.content, str):
+                    try:
+                        result = json.loads(m.content)
+                    except json.JSONDecodeError:
+                        pass
                 facts.append({"tool": m.name, "result": result})
         return facts
 
@@ -179,30 +182,78 @@ class Nodes:
             return gate_outcome(risk, appropriate, args_complete, self.settings)
         return gate
 
-    # ---------- nós ----------
+    # ---------- triagem ----------
+    def _triage_ask(self, state: AgentState, contact: Any, history: list[dict[str, Any]],
+                    attachments: list[dict[str, Any]]) -> tuple[JevResponse, str | None]:
+        return self._ask(
+            state, "triage",
+            decisions.triage_state(state["email"], contact.model_dump() if contact else None,
+                                   history, attachments),
+            decisions.triage_questions(self.tenant), extra_names=[contact.name] if contact else [])
+
+    @staticmethod
+    def _injection(response: JevResponse) -> float:
+        return response.noul("injection") if "injection" in response.answers else 0.0
+
+    def _triage_notes(self, response: JevResponse, fallback_note: str | None,
+                      history: list[dict[str, Any]], attachments: list[dict[str, Any]]) -> list[str]:
+        category = response.choice("category")
+        notes = [(f"triagem: {category.choice} (conf {category.confidence:.2f}), "
+                  f"urgência {response.score('urgency').score:.1f}, "
+                  f"humano {response.noul('needs_human'):.2f}")]
+        if fallback_note:
+            notes.insert(0, fallback_note)
+        if history:
+            open_count = sum(1 for h in history if h["open"])
+            notes.append(f"thread com {len(history)} mensagem(ns) anterior(es)"
+                         + (f", {open_count} em aberto" if open_count else ""))
+        if attachments:
+            notes.append("anexos: " + ", ".join(f"{a['filename']} ({a['method']})" for a in attachments))
+        return notes
+
+    @staticmethod
+    def _escalate(triage: dict[str, Any], notes: list[str], reason: str) -> dict[str, Any]:
+        return {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated", "notes": notes,
+                "escalation_reason": reason}
+
     def triage(self, state: AgentState) -> dict[str, Any]:
+        """Triagem em duas passadas para que conteúdo suspeito nunca chegue ao LLM do agente.
+
+        1. Anexos extraídos sem LLM (PDF, texto; imagens ficam pendentes) e triagem pelo Jev.
+           Se o gate de prompt injection disparar aqui, o item escala sem nenhuma chamada ao LLM,
+           nem mesmo a transcrição de imagens.
+        2. Só se o e-mail passou e há imagens, o LLM com visão as transcreve (chamada sem
+           ferramentas) e a triagem é refeita com o texto transcrito: a transcrição passa pelo
+           mesmo gate antes de entrar no prompt do agente.
+        """
         email = state["email"]
         contact = self.adapters.crm.find_contact_by_email(email["from_addr"])
         history = thread_history(self.store, state.get("thread_id"), state["item_id"])
-        attachments = extract_all([Attachment(**a) for a in email.get("attachments", [])], self.llm)
-        context_update = {"thread": history, "attachments": attachments}
+        raw = [Attachment(**a) for a in email.get("attachments", [])]
+        attachments = extract_all(raw)  # sem LLM: nada do e-mail sai para o modelo antes do gate
+        extra_notes: list[str] = []
         try:
-            response, fallback_note = self._ask(
-                state, "triage",
-                decisions.triage_state(email, contact.model_dump() if contact else None,
-                                       history, attachments),
-                decisions.triage_questions(self.tenant), extra_names=[contact.name] if contact else [])
+            response, fallback_note = self._triage_ask(state, contact, history, attachments)
+            if needs_vision(raw) and self._injection(response) < self.settings.injection_escalate:
+                attachments = extract_all(raw, self.llm)
+                response, fallback_note = self._triage_ask(state, contact, history, attachments)
+                extra_notes.append("triagem refeita com a transcrição das imagens")
         except Exception as exc:  # sem Jev e sem fallback: humano assume, nada é perdido
-            return context_update | {
-                "tier": Tier.ESCALATE, "status": "escalated",
-                "escalation_reason": f"triagem indisponível ({exc.__class__.__name__}: {exc})",
-                "notes": [f"triagem falhou: {exc.__class__.__name__}"]}
+            return {"thread": history, "attachments": attachments,
+                    "tier": Tier.ESCALATE, "status": "escalated",
+                    "escalation_reason": f"triagem indisponível ({exc.__class__.__name__}: {exc})",
+                    "notes": [f"triagem falhou: {exc.__class__.__name__}"]}
+        context_update = {"thread": history, "attachments": attachments}
+        notes = self._triage_notes(response, fallback_note, history, attachments) + extra_notes
+        return context_update | self._route_triage(state, response, notes, history, attachments)
 
+    def _route_triage(self, state: AgentState, response: JevResponse, notes: list[str],
+                      history: list[dict[str, Any]], attachments: list[dict[str, Any]]) -> dict[str, Any]:
         category = response.choice("category")
         urgency = response.score("urgency")
         needs_human = response.noul("needs_human")
         sensitive = response.noul("sensitive")
-        injection = response.noul("injection") if "injection" in response.answers else 0.0
+        injection = self._injection(response)
         triage = {
             "category": category.choice,
             "category_confidence": category.confidence,
@@ -212,46 +263,26 @@ class Nodes:
             "injection": round(injection, 3),
             "calibrated": response.calibrated,
         }
-        notes = [(f"triagem: {category.choice} (conf {category.confidence:.2f}), "
-                  f"urgência {urgency.score:.1f}, humano {needs_human:.2f}")]
-        if fallback_note:
-            notes.insert(0, fallback_note)
-        if history:
-            open_count = sum(1 for h in history if h["open"])
-            notes.append(f"thread com {len(history)} mensagem(ns) anterior(es)"
-                         + (f", {open_count} em aberto" if open_count else ""))
-        if attachments:
-            notes.append("anexos: " + ", ".join(f"{a['filename']} ({a['method']})" for a in attachments))
-
-        tier = tier_for(category.confidence, self.settings, category.choice)
         if injection >= self.settings.injection_escalate:
-            # o conteúdo do e-mail nunca chega ao LLM: humano decide
-            return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated",
-                                     "notes": notes,
-                    "escalation_reason": f"triagem: possível prompt injection (p={injection:.2f})"}
+            # nem o agente nem a transcrição de imagens chegam a ser chamados: humano decide
+            return self._escalate(triage, notes, f"triagem: possível prompt injection (p={injection:.2f})")
+        tier = tier_for(category.confidence, self.settings, category.choice)
         log_event("triage", item_id=state["item_id"], category=category.choice,
                   confidence=round(category.confidence, 2), tier=str(tier), urgency=round(urgency.score, 1),
                   needs_human=round(needs_human, 2), injection=round(injection, 2),
                   sensitive=round(sensitive, 2), calibrated=response.calibrated)
         if sensitive >= self.settings.sensitive_escalate:
-            return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated",
-                                     "notes": notes,
-                    "escalation_reason": f"triagem: dado sensível (p={sensitive:.2f})"}
+            return self._escalate(triage, notes, f"triagem: dado sensível (p={sensitive:.2f})")
         if category.choice == "spam_irrelevante" and tier == Tier.AUTO:
-            return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "discarded",
-                                     "notes": notes}
+            return {"triage": triage, "tier": Tier.ESCALATE, "status": "discarded", "notes": notes}
         if needs_human >= self.settings.needs_human_escalate:
-            return context_update | {"triage": triage, "tier": Tier.ESCALATE, "status": "escalated",
-                                     "notes": notes,
-                    "escalation_reason": "triagem: caso exige humano"}
+            return self._escalate(triage, notes, "triagem: caso exige humano")
         if tier == Tier.ESCALATE:
-            return context_update | {"triage": triage, "tier": tier, "status": "escalated",
-                                     "notes": notes,
-                    "escalation_reason": "triagem: confiança baixa na categoria"}
-        return context_update | {
-            "triage": triage, "tier": tier, "status": "triaged", "notes": notes,
-            "messages": messages_to_dict(self._initial_messages(state, triage, history, attachments))}
+            return self._escalate(triage, notes, "triagem: confiança baixa na categoria")
+        return {"triage": triage, "tier": tier, "status": "triaged", "notes": notes,
+                "messages": messages_to_dict(self._initial_messages(state, triage, history, attachments))}
 
+    # ---------- nós ----------
     def act(self, state: AgentState) -> dict[str, Any]:
         registry = self._registry(state)
         messages = messages_from_dict(state["messages"])
@@ -317,8 +348,9 @@ class Nodes:
         resolves = response.noul("resolves")
         quality = response.score("quality")
         unsupported = response.noul("unsupported_claims")
-        claim_results = [{"text": text, "supported": round(response.noul(f"claim_{i}"), 3)}
-                         for i, text in enumerate(claims)]
+        claim_results: list[dict[str, Any]] = [
+            {"text": text, "supported": round(response.noul(f"claim_{i}"), 3)}
+            for i, text in enumerate(claims)]
         unsupported_claims = [c for c in claim_results if c["supported"] < 0.5]
         passed = (resolves >= self.settings.verify_min_resolves
                   and quality.score >= self.settings.verify_min_quality and unsupported < 0.5
@@ -357,15 +389,16 @@ class Nodes:
 
     def request_approval(self, state: AgentState) -> dict[str, Any]:
         email = state["email"]
-        if state.get("pending_action"):
-            call = state["pending_action"]["call"]
+        pending = state.get("pending_action")
+        if pending:
+            call = pending["call"]
             kind = "tool"
-            action = {"tool": call["name"], "args": call["args"], "reason": state["pending_action"]["reason"]}
+            action = {"tool": call["name"], "args": call["args"], "reason": pending["reason"]}
             text = (f"🔐 Aprovação necessária — item {state['item_id']}\n"
                     f"Cliente: {email.get('from_name')} <{email.get('from_addr')}>\n"
                     f"Assunto: {email.get('subject')}\n\nAção: {call['name']}\n"
                     f"Argumentos: {json.dumps(call['args'], ensure_ascii=False)}\n"
-                    f"Motivo: {state['pending_action']['reason']}")
+                    f"Motivo: {pending['reason']}")
         else:
             kind = "send"
             action = {"draft_reply": state.get("draft_reply", "")}
@@ -396,7 +429,7 @@ class Nodes:
         """
         if state.get("sent_at"):
             return {"status": "sent", "approval": None,
-                    "notes": state.get("notes", []) + ["envio ignorado: já enviado em " + state["sent_at"]]}
+                    "notes": state.get("notes", []) + [f"envio ignorado: já enviado em {state['sent_at']}"]}
         email_dict = state["email"]
         original = EmailMessage(**email_dict)
         self.store.set_item_state(state["item_id"], "sending", {**dict(state), "status": "sending"})

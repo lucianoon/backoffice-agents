@@ -109,7 +109,7 @@ class ImapSmtpEmailAdapter:
     def _imap(self) -> imaplib.IMAP4_SSL:
         # timeout no socket também: sem isso uma conexão presa segura o worker
         conn = imaplib.IMAP4_SSL(self._s.imap_host, self._s.imap_port, timeout=30)
-        conn.login(self._s.imap_user, self._s.imap_password)
+        conn.login(self._s.imap_user or "", self._s.imap_password or "")
         conn.select(self._s.imap_folder)
         return conn
 
@@ -122,13 +122,13 @@ class ImapSmtpEmailAdapter:
     def _fetch(self, criterion: str, limit: int) -> list[EmailMessage]:
         conn = self._imap()
         try:
-            _, data = conn.uid("SEARCH", None, criterion)
+            _, data = conn.uid("SEARCH", criterion)  # charset omitido (None)
             # UID (não sequence number): sobrevive a compactação da caixa.
             uids = parse_uid_search(data[0], limit)
             messages: list[EmailMessage] = []
             for uid in uids:
                 # BODY.PEEK não marca como lido
-                _, parts = conn.uid("FETCH", uid, "(BODY.PEEK[])")
+                _, parts = conn.uid("FETCH", uid.decode(), "(BODY.PEEK[])")
                 msg = email_lib.message_from_bytes(extract_fetch_body(parts))
                 name, addr = parseaddr(msg.get("From", ""))
                 messages.append(EmailMessage(
@@ -181,14 +181,14 @@ class ImapSmtpEmailAdapter:
         # _imap já faz login+select e tem timeout no socket
         conn = self._imap()
         try:
-            conn.uid("STORE", message_id.encode(), "+FLAGS", "\\Seen")
+            conn.uid("STORE", message_id,"+FLAGS", "\\Seen")
         finally:
             conn.logout()
 
     def _send(self, msg: StdEmailMessage) -> None:
         with smtplib.SMTP(self._s.smtp_host, self._s.smtp_port) as smtp:
             smtp.starttls()
-            smtp.login(self._s.smtp_user, self._s.smtp_password)
+            smtp.login(self._s.smtp_user or "", self._s.smtp_password or "")
             smtp.send_message(msg)
 
 

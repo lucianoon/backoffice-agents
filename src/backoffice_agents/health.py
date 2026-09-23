@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sqlalchemy import create_engine, text
+
 from .adapters import build_adapters
 from .config import Settings
 from .jev.client import RealJevClient
@@ -32,6 +34,28 @@ def run_doctor(settings: Settings, ping_jev: bool = False) -> list[Check]:
     ]
     if ping_jev and settings.jev_mode == "real" and settings.typesafe_api_key:
         checks.append(_ping_jev(settings))
+    return checks
+
+
+def run_healthcheck(settings: Settings) -> list[Check]:
+    """Checagem leve para o HEALTHCHECK do container: configuração coerente e banco acessível.
+
+    Não chama Jev, IMAP nem Telegram (isso é o `doctor`); roda a cada poucos segundos.
+    """
+    checks = [Check("TYPESAFE_API_KEY", settings.jev_mode != "real" or bool(settings.typesafe_api_key),
+                    settings.jev_mode),
+              Check("TELEGRAM", _telegram_ready(settings), _telegram_detail(settings)),
+              Check("IMAP", _imap_ready(settings), settings.email_adapter)]
+    try:
+        engine = create_engine(settings.db_url)
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        finally:
+            engine.dispose()
+        checks.append(Check("DB", True, engine.dialect.name))
+    except Exception as exc:
+        checks.append(Check("DB", False, exc.__class__.__name__))
     return checks
 
 
