@@ -29,7 +29,10 @@ from ..attachments import extract_all, needs_vision
 from ..budget import fit_state
 from ..claims import split_reply
 from ..config import Settings
-from ..jev import ChoiceAnswer, JevClient, JevResponse, NoulAnswer, ScoreAnswer
+from ..jev import ChoiceAnswer, JevClient, JevResponse, ScoreAnswer
+from ..jev.models import is_finite_number as _finite
+from ..jev.models import probability as _probability
+from ..jev.models import valid_noul
 from ..knowledge import KnowledgeBase
 from ..obs import log_event
 from ..policy import GateOutcome, RiskLevel, Tier, gate_outcome, tier_for
@@ -44,20 +47,6 @@ from .state import AgentState
 # O prompt do sistema vem do tenant (tenants/*.toml); ver tenant.DEFAULT_SYSTEM_PROMPT.
 
 
-def _probability(value: Any) -> float | None:
-    """Número finito em [0, 1]; qualquer outra coisa (None, str, bool, NaN) é None."""
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    value = float(value)
-    return value if math.isfinite(value) and 0.0 <= value <= 1.0 else None
-
-
-def valid_noul(response: JevResponse, key: str) -> float | None:
-    """Noul `key` da resposta, ou None se ausente, de outro tipo ou não numérico."""
-    answer = response.answers.get(key)
-    return _probability(answer.noul) if isinstance(answer, NoulAnswer) else None
-
-
 def invalid_triage_keys(response: JevResponse) -> list[str]:
     """Perguntas da triagem (além de injection) sem resposta utilizável."""
     invalid = [key for key in ("needs_human", "sensitive") if valid_noul(response, key) is None]
@@ -68,10 +57,6 @@ def invalid_triage_keys(response: JevResponse) -> list[str]:
     if not isinstance(urgency, ScoreAnswer) or not _finite(urgency.score):
         invalid.append("urgency")
     return invalid
-
-
-def _finite(value: Any) -> bool:
-    return not isinstance(value, bool) and isinstance(value, int | float) and math.isfinite(value)
 
 
 class Nodes:
