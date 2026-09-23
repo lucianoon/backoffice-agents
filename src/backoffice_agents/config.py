@@ -71,7 +71,8 @@ class Settings(BaseSettings):
     # ids de usuário do Telegram que podem aprovar/rotular (vazio = qualquer um no chat autorizado)
     telegram_operators: str = ""
 
-    # Prompt injection: probabilidade (Noul da triagem) acima da qual o item escala sem passar pelo LLM
+    # Prompt injection: probabilidade (Noul da triagem) acima da qual o item escala sem chamar o
+    # agente LLM nem a transcrição de imagens (no modo emulado a triagem em si é feita por um LLM)
     injection_escalate: float = 0.7
     needs_human_escalate: float = 0.7   # noul needs_human; não reutiliza CONFIDENCE_AUTO
     sensitive_escalate: float = 0.7     # noul sensitive: CPF/cartão/saúde → humano, sem passar pelo LLM
