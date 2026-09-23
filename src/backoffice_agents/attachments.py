@@ -1,7 +1,8 @@
 """Extração de texto de anexos: PDF (pypdf), texto/CSV e imagens (transcrição pelo LLM com visão).
 
 O resultado entra no estado do item como dado, ao lado do corpo do e-mail, e passa pela mesma
-pseudonimização antes de ir ao Jev.
+pseudonimização antes de ir ao Jev. A triagem chama `extract_all` primeiro sem LLM e só transcreve
+imagens depois que o e-mail passou pelo gate de prompt injection (ver `Nodes.triage`).
 """
 
 from __future__ import annotations
@@ -44,6 +45,12 @@ def extract_text(attachment: Attachment, llm: BaseChatModel | None = None) -> di
 
 def extract_all(attachments: list[Attachment], llm: BaseChatModel | None = None) -> list[dict[str, Any]]:
     return [extract_text(a, llm) for a in attachments]
+
+
+def needs_vision(attachments: list[Attachment]) -> bool:
+    """Algum anexo só vira texto com o LLM com visão? (imagem com conteúdo; PDF e texto não)."""
+    return any(a.data_b64 and a.content_type.lower().startswith("image/")
+               and not a.filename.lower().endswith(".pdf") for a in attachments)
 
 
 def _clip(text: str) -> str:
