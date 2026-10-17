@@ -299,3 +299,7 @@ data/kb/           políticas de exemplo (trocas, prazos, pagamento, garantia)
   inglês e o estado em português; a fase 1 mede se isso basta.
 - **Early access.** A API teve instabilidade no lançamento. Veja "Proteções" acima: fallback para o
   emulador, escalada para humano e reprocessamento limitado.
+
+## Licença
+
+Este projeto está sob a [licença MIT](LICENSE).
