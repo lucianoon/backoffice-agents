@@ -1,5 +1,11 @@
 # backoffice-agents
 
+[![CI](https://github.com/lucianoon/backoffice-agents/actions/workflows/ci.yml/badge.svg)](https://github.com/lucianoon/backoffice-agents/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.12 | 3.13](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue.svg)](https://www.python.org/downloads/)
+
+**Idioma:** Português | [English](README.en.md)
+
 Piloto de agentes de backoffice em que **o LLM gera e raciocina** e **o Jev decide, roteia e verifica**.
 Entrada por e-mail, ferramentas de CRM e ERP, operador humano pelo Telegram.
 
